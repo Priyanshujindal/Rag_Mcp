@@ -11,6 +11,7 @@ Requires:
 
 from __future__ import annotations
 
+import base64
 from typing import AsyncGenerator
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -22,10 +23,14 @@ from app.core.tenant import TenantContext, require_workspace_id, verify_internal
 from app.rag.prompt_builder import PromptBuilder, estimate_token_count, ChatMessage
 from app.rag.retriever import Retriever
 from app.rag.vector_store import get_vector_store
-from app.schemas.chat import ChatRequest, TitleRequest, TitleResponse
+from app.schemas.chat import ChatRequest, TitleRequest, TitleResponse, ParseDocumentRequest
 from app.schemas.retrieval import RetrieveRequest, RetrieveResponse
+from app.services.web_search import WebSearchService, calculate_web_score
 from app.llm.router import get_llm_provider
 from app.llm.streaming import StreamUsage, format_sse
+from app.ingestion.extractors.pdf import extract_pdf
+from app.ingestion.extractors.csv import extract_csv
+from app.ingestion.extractors.txt import extract_txt
 
 router = APIRouter(tags=["Retrieval & Chat"])
 
@@ -160,19 +165,41 @@ async def chat(
                 detail={"code": "RETRIEVAL_ERROR", "message": "Failed to retrieve context for chat"},
             )
 
-    # 2. Build prompt (general conversation vs RAG grounded)
+    # 2. Live Web Search if enabled
+    web_results = []
+    if body.web_search:
+        try:
+            search_service = WebSearchService()
+            web_results = await search_service.search(body.message, max_results=5)
+            logger.info(
+                f"Live web search found {len(web_results)} results for query: {body.message[:50]}",
+                extra={"web_search": True, "results_count": len(web_results)},
+            )
+        except Exception as exc:
+            logger.warning(f"Live web search failed: {exc}")
+
+    # 3. Build prompt (general conversation vs RAG grounded, incorporating live web facts & ad-hoc files)
+    attached_docs = []
+    if body.attached_documents:
+        attached_docs.extend([d for d in body.attached_documents if d and d.get("content")])
+    elif body.attached_document and body.attached_document.get("content"):
+        attached_docs.append(body.attached_document)
+
     prompt_builder = PromptBuilder()
     built = prompt_builder.build_chat_prompt(
         query=body.message,
         history=body.history,
         retrieved_chunks=retrieval_res.results if retrieval_res else [],
+        web_search_results=web_results,
+        attached_documents=attached_docs,
+        is_thinking=body.is_thinking,
         custom_prompt=body.custom_prompt,
         is_general=is_general,
     )
 
-    # 3. Select LLM provider
+    # 4. Select LLM provider
     try:
-        provider = get_llm_provider(body.model)
+        provider = get_llm_provider(model=body.model, provider=body.provider)
     except Exception as exc:
         logger.error(f"Failed to resolve LLM provider: {exc}")
         raise HTTPException(
@@ -180,10 +207,44 @@ async def chat(
             detail={"code": "PROVIDER_ERROR", "message": str(exc)},
         )
 
-    # 4. SSE generator
+    # 5. SSE generator
     async def sse_event_stream() -> AsyncGenerator[str, None]:
-        # Send citations first if in RAG mode so client UI can render sources immediately
-        citations_payload = [c.model_dump() for c in retrieval_res.citations] if retrieval_res else []
+        # Compose combined citations from attached docs + retrieval + live web search
+        citations_payload = []
+        for idx, doc in enumerate(attached_docs, start=1):
+            doc_name = doc.get("name", f"Attached Document {idx}")
+            doc_text = doc.get("content", "") or ""
+            citations_payload.append({
+                "index": idx,
+                "title": f"📄 {doc_name} (Attached)",
+                "url": "",
+                "snippet": doc_text[:280].strip() + ("..." if len(doc_text) > 280 else ""),
+                "score": 1.0,
+            })
+
+        start_kb_idx = len(citations_payload) + 1
+        if retrieval_res and retrieval_res.citations:
+            for idx, c in enumerate(retrieval_res.citations):
+                c_dict = c.model_dump()
+                c_dict["index"] = start_kb_idx + idx
+                citations_payload.append(c_dict)
+
+        start_web_idx = len(citations_payload) + 1
+        for rank, w in enumerate(web_results):
+            score = calculate_web_score(
+                query=body.message,
+                title=w.get("title", ""),
+                snippet=w.get("snippet", ""),
+                rank=rank,
+            )
+            citations_payload.append({
+                "index": start_web_idx + rank,
+                "title": w.get("title", "Web Source"),
+                "url": w.get("url", ""),
+                "snippet": w.get("snippet", ""),
+                "score": score,
+            })
+
         yield format_sse("citations", citations_payload)
 
         token_count = 0
@@ -283,4 +344,47 @@ async def generate_title(
         logger.warning(f"AI title generation encountered an issue: {exc}")
 
     return TitleResponse(title="New Conversation")
+
+
+@router.post(
+    "/parse-document",
+    summary="Parse ad-hoc document text",
+    description="Extracts raw text from an attached PDF, TXT, or CSV file for ad-hoc chat analysis.",
+)
+async def parse_document(
+    body: ParseDocumentRequest,
+    _key: str = Depends(verify_internal_key),
+    ws_id: ObjectId = Depends(require_workspace_id),
+):
+    """POST /parse-document - Extract text from ad-hoc uploaded document."""
+    try:
+        content = base64.b64decode(body.content_base64)
+        filename = body.filename or "uploaded_document"
+        ext = filename.lower().split(".")[-1] if "." in filename else ""
+
+        text = ""
+        pages = 1
+        if ext == "pdf":
+            doc = extract_pdf(content, filename=filename)
+            text = "\n\n".join(s.text for s in doc.sections)
+            pages = len(doc.sections)
+        elif ext in ("csv", "tsv"):
+            doc = extract_csv(content, filename=filename)
+            text = "\n\n".join(s.text for s in doc.sections)
+        else:
+            doc = extract_txt(content, filename=filename)
+            text = "\n\n".join(s.text for s in doc.sections)
+
+        return {
+            "filename": filename,
+            "text": text,
+            "characterCount": len(text),
+            "pages": pages,
+        }
+    except Exception as exc:
+        logger.exception(f"Document parsing failed: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "PARSE_ERROR", "message": str(exc)},
+        )
 

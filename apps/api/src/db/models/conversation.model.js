@@ -26,6 +26,11 @@ const conversationSchema = new mongoose.Schema(
       default: "New Conversation",
       trim: true,
     },
+    isPinned: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   {
     timestamps: true,

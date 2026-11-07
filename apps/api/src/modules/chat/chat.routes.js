@@ -1,4 +1,5 @@
 import { Router } from "express";
+import multer from "multer";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { tenantGuard } from "../../middleware/tenant-guard.middleware.js";
 import { Conversation, Message, Membership, KnowledgeBase } from "../../db/models/index.js";
@@ -9,6 +10,52 @@ import logger from "../../utils/logger.js";
 
 const router = Router();
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+/**
+ * POST /api/v1/chat/parse-document
+ * Parses an ad-hoc attached document (PDF, TXT, CSV, MD, JSON) for chat.
+ */
+router.post("/parse-document", authenticate, tenantGuard, upload.single("file"), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return next(AppError.badRequest("No file uploaded"));
+    }
+    const filename = req.file.originalname || "attached_document";
+    const ext = (filename.split(".").pop() || "").toLowerCase();
+
+    // Direct memory decoding for text-based files
+    if (["txt", "csv", "tsv", "md", "json"].includes(ext)) {
+      const text = req.file.buffer.toString("utf-8");
+      return res.json({
+        filename,
+        text,
+        characterCount: text.length,
+        pages: 1,
+      });
+    }
+
+    let workspaceId = req.workspaceId || req.headers["x-workspace-id"];
+    if (!workspaceId && req.user?.id) {
+      const m = await Membership.findOne({ userId: req.user.id });
+      if (m) workspaceId = m.workspaceId;
+    }
+
+    const parsed = await aiClient.parseDocument(
+      workspaceId || "anon",
+      filename,
+      req.file.buffer,
+      req.file.mimetype
+    );
+    res.json(parsed);
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * POST /api/v1/chat
  * Direct RAG chat endpoint with conversation and message persistence.
@@ -16,7 +63,26 @@ const router = Router();
  */
 router.post("/", authenticate, tenantGuard, async (req, res, next) => {
   try {
-    const { message, knowledgeBaseId, conversationId, model, history = [], options = {} } = req.body;
+    const {
+      message,
+      knowledgeBaseId,
+      conversationId,
+      model,
+      provider,
+      webSearch,
+      isThinking,
+      attachedDocument,
+      attachedDocuments,
+      history = [],
+      options = {},
+    } = req.body;
+
+    let incomingDocs = [];
+    if (Array.isArray(attachedDocuments) && attachedDocuments.length > 0) {
+      incomingDocs = attachedDocuments.filter((d) => d && d.name);
+    } else if (attachedDocument && attachedDocument.name) {
+      incomingDocs = [attachedDocument];
+    }
     let workspaceId = req.workspaceId
       || req.headers["x-workspace-id"]
       || req.get("x-workspace-id");
@@ -46,10 +112,25 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
 
     const mode = req.body.chatMode || req.body.mode || (knowledgeBaseId ? "rag" : "general");
 
-    if (mode === "rag" && !knowledgeBaseId) {
-      return next(
-        AppError.badRequest("Knowledge base ID is required in RAG mode. Please select a knowledge base or switch to General Chat mode.")
-      );
+    const hasIncomingDocs = incomingDocs.length > 0;
+    if (mode === "rag" && !knowledgeBaseId && !hasIncomingDocs) {
+      // Check if this conversation already has an active attached document from a previous turn
+      let hasPriorDoc = false;
+      if (conversationId) {
+        const priorDoc = await Message.exists({
+          conversationId,
+          $or: [
+            { "attachedDocuments.0": { $exists: true } },
+            { "attachedDocument.content": { $exists: true, $ne: "" } },
+          ],
+        });
+        hasPriorDoc = Boolean(priorDoc);
+      }
+      if (!hasPriorDoc) {
+        return next(
+          AppError.badRequest("Knowledge base ID is required in RAG mode. Please select a knowledge base, switch to General Chat mode, or attach a document.")
+        );
+      }
     }
 
     const startTime = Date.now();
@@ -98,20 +179,65 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
     }
 
     // 3. Save incoming user message
-    await Message.create({
+    const userMsgDoc = {
       workspaceId,
       conversationId: conversation._id,
       role: "USER",
       content: message.trim(),
-    });
+    };
+    if (incomingDocs.length > 0) {
+      userMsgDoc.attachedDocuments = incomingDocs.map((d) => ({
+        name: d.name,
+        size: d.size || 0,
+        type: d.type || "",
+        content: d.content || "",
+        pages: d.pages || 1,
+        characterCount: d.characterCount || (d.content || "").length,
+      }));
+      // Keep primary doc for backwards compatibility
+      userMsgDoc.attachedDocument = userMsgDoc.attachedDocuments[0];
+    }
+    await Message.create(userMsgDoc);
 
-    // 4. Build payload for AI service
+    // 4. Resolve active attached documents (either directly attached in this request, or inherited from previous turns)
+    let activeAttachedDocs = incomingDocs;
+    if (activeAttachedDocs.length === 0 && conversation) {
+      const prevDocMsg = await Message.findOne({
+        conversationId: conversation._id,
+        workspaceId,
+        $or: [
+          { "attachedDocuments.0": { $exists: true } },
+          { "attachedDocument.content": { $exists: true, $ne: "" } },
+        ],
+      }).sort({ createdAt: -1 });
+
+      if (prevDocMsg?.attachedDocuments?.length) {
+        activeAttachedDocs = prevDocMsg.attachedDocuments;
+      } else if (prevDocMsg?.attachedDocument?.content) {
+        activeAttachedDocs = [prevDocMsg.attachedDocument];
+      }
+    }
+
+    const resolvedProvider = provider || (model && (model.includes("nvidia") || model.includes("openrouter") || model.includes("gemma")) ? "openrouter" : "gemini");
+    const resolvedModel = model || (resolvedProvider === "openrouter" ? "nvidia/nemotron-3-ultra-550b-a55b:free" : "gemini-3.8-flash");
+
+    const isWebSearch = Boolean(webSearch ?? options.webSearch);
+    const resolvedThinking = Boolean(isThinking ?? options.isThinking);
+
+    const isAdHocDocChat = mode === "rag" && !knowledgeBaseId && activeAttachedDocs.length > 0;
+    const resolvedChatMode = isAdHocDocChat ? "general" : mode;
+
     const aiPayload = {
       message: message.trim(),
-      knowledgeBaseId: mode === "general" ? null : knowledgeBaseId,
-      mode,
+      knowledgeBaseId: resolvedChatMode === "general" ? null : knowledgeBaseId,
+      mode: resolvedChatMode,
       conversationId: conversation._id.toString(),
-      model: model || "gemini-3.8-flash",
+      provider: resolvedProvider,
+      model: resolvedModel,
+      webSearch: isWebSearch,
+      isThinking: resolvedThinking,
+      attachedDocument: activeAttachedDocs[0] || null,
+      attachedDocuments: activeAttachedDocs,
       history: conversationHistory || [],
       top_k: options.top_k || 5,
       strategy: options.strategy || "auto",
@@ -183,6 +309,14 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
           // 6. Save completed assistant message to MongoDB
           if (assistantText.trim()) {
             try {
+              let finalContent = assistantText;
+              let reasoning = "";
+              const thinkMatch = assistantText.match(/<think>([\s\S]*?)<\/think>/i);
+              if (thinkMatch) {
+                reasoning = thinkMatch[1].trim();
+                finalContent = assistantText.replace(/<think>[\s\S]*?<\/think>/i, "").trim();
+              }
+
               const formattedCitations = (capturedCitations || []).map((c) => ({
                 title: c.title || "",
                 url: c.url || "",
@@ -195,7 +329,8 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
                 workspaceId,
                 conversationId: conversation._id,
                 role: "ASSISTANT",
-                content: assistantText,
+                content: finalContent || assistantText,
+                reasoning,
                 citations: formattedCitations,
                 tokenUsage: {
                   promptTokens: capturedUsage?.prompt_tokens || 0,

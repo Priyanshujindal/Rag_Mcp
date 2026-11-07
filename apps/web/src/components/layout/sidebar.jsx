@@ -20,6 +20,10 @@ import {
   Layers,
   MessageSquare,
   Trash2,
+  Pin,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import { getMockChatbots } from "@/lib/api";
 import { api } from "@/lib/api/client";
@@ -95,6 +99,54 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
     };
   }, [loadRecents]);
 
+  const [editingId, setEditingId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState("");
+
+  const handleStartEdit = (e, id, currentTitle) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditingId(id);
+    setEditingTitle(currentTitle || "New Conversation");
+  };
+
+  const handleSaveEdit = async (e, id) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!editingTitle || !editingTitle.trim()) {
+      setEditingId(null);
+      return;
+    }
+    const finalTitle = editingTitle.trim();
+    try {
+      await api.patch(`/conversations/${id}`, { title: finalTitle });
+      setRecents((prev) =>
+        prev.map((c) => ((c.id || c._id) === id ? { ...c, title: finalTitle } : c))
+      );
+      window.dispatchEvent(new CustomEvent("rag:conversations-changed"));
+    } catch (err) {
+      console.error("Failed to rename conversation:", err);
+    } finally {
+      setEditingId(null);
+    }
+  };
+
+  const handleTogglePin = async (e, id, currentPinned) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const nextPinned = !currentPinned;
+    try {
+      await api.patch(`/conversations/${id}`, { isPinned: nextPinned });
+      setRecents((prev) =>
+        prev.map((c) => ((c.id || c._id) === id ? { ...c, isPinned: nextPinned } : c))
+      );
+      window.dispatchEvent(new CustomEvent("rag:conversations-changed"));
+    } catch (err) {
+      console.error("Failed to toggle pin conversation:", err);
+    }
+  };
+
   const handleDeleteRecent = async (e, id) => {
     e.preventDefault();
     e.stopPropagation();
@@ -116,6 +168,100 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
     onCloseMobile?.();
   };
 
+  const renderConversationItem = (item) => {
+    const itemId = item.id || item._id;
+    const searchParams = new URLSearchParams(location.search);
+    const currentId = searchParams.get("c") || searchParams.get("id");
+    const isActive = (location.pathname === "/" || location.pathname === "/chat") && currentId === itemId;
+    const isEditing = editingId === itemId;
+
+    if (isEditing) {
+      return (
+        <div key={itemId} className="sidebar-recent-edit-wrapper" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="text"
+            className="sidebar-recent-edit-input"
+            value={editingTitle}
+            autoFocus
+            onChange={(e) => setEditingTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSaveEdit(e, itemId);
+              if (e.key === "Escape") setEditingId(null);
+            }}
+          />
+          <button
+            type="button"
+            className="sidebar-recent-action-btn check"
+            title="Save title"
+            onClick={(e) => handleSaveEdit(e, itemId)}
+          >
+            <Check size={12} />
+          </button>
+          <button
+            type="button"
+            className="sidebar-recent-action-btn cancel"
+            title="Cancel"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setEditingId(null);
+            }}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <Link
+        key={itemId}
+        to={`/?c=${itemId}`}
+        className={`sidebar-recent-link ${isActive ? "active" : ""}`}
+        title={item.title || "Untitled Conversation"}
+        onClick={() => {
+          handleLinkClick();
+          window.dispatchEvent(new CustomEvent("rag:select-conversation", { detail: itemId }));
+        }}
+        onDoubleClick={(e) => handleStartEdit(e, itemId, item.title)}
+      >
+        <MessageSquare size={13} className="sidebar-recent-icon" />
+        <span className="truncate-flex">
+          {item.title || "Untitled Conversation"}
+        </span>
+        <div className="sidebar-recent-actions">
+          <button
+            type="button"
+            className={`sidebar-recent-action-btn pin ${item.isPinned ? "pinned" : ""}`}
+            title={item.isPinned ? "Unpin chat" : "Pin chat to top"}
+            aria-label={item.isPinned ? "Unpin chat" : "Pin chat to top"}
+            onClick={(e) => handleTogglePin(e, itemId, item.isPinned)}
+          >
+            <Pin size={11} className={item.isPinned ? "fill-current" : ""} />
+          </button>
+          <button
+            type="button"
+            className="sidebar-recent-action-btn edit"
+            title="Rename chat (or double-click)"
+            aria-label="Rename chat"
+            onClick={(e) => handleStartEdit(e, itemId, item.title)}
+          >
+            <Pencil size={11} />
+          </button>
+          <button
+            type="button"
+            className="sidebar-recent-action-btn delete"
+            title="Delete conversation"
+            aria-label="Delete conversation"
+            onClick={(e) => handleDeleteRecent(e, itemId)}
+          >
+            <Trash2 size={11} />
+          </button>
+        </div>
+      </Link>
+    );
+  };
+
   return (
     <aside
       className={`sidebar ${collapsed ? "sidebar-collapsed" : "sidebar-expanded"} ${mobileOpen ? "mobile-open" : ""}`}
@@ -124,7 +270,14 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
       {/* Header */}
       <div className="sidebar-header">
         {!collapsed && (
-          <Link to="/" className="sidebar-logo" onClick={handleLinkClick}>
+          <Link
+            to="/"
+            className="sidebar-logo"
+            onClick={() => {
+              handleLinkClick();
+              window.dispatchEvent(new CustomEvent("rag:new-conversation"));
+            }}
+          >
             <div className="sidebar-logo-icon">
               <Sparkles size={15} />
             </div>
@@ -234,48 +387,37 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
         )}
 
         {/* Recents (Real Conversations from MongoDB) */}
-        {!collapsed && (
-          <div>
-            <div className="sidebar-section-label">Recents</div>
-            <div className="sidebar-nav">
-              {loadingRecents && recents.length === 0 ? (
-                <div className="sidebar-empty-recents">Loading chats...</div>
-              ) : recents.length === 0 ? (
-                <div className="sidebar-empty-recents">No recent chats</div>
-              ) : (
-                recents.map((item) => {
-                  const itemId = item.id || item._id;
-                  const searchParams = new URLSearchParams(location.search);
-                  const currentId = searchParams.get("c") || searchParams.get("id");
-                  const isActive = (location.pathname === "/" || location.pathname === "/chat") && currentId === itemId;
-                  return (
-                    <Link
-                      key={itemId}
-                      to={`/?c=${itemId}`}
-                      className={`sidebar-recent-link ${isActive ? "active" : ""}`}
-                      title={item.title || "Untitled Conversation"}
-                      onClick={handleLinkClick}
-                    >
-                      <MessageSquare size={13} className="sidebar-recent-icon" />
-                      <span className="truncate-flex">
-                        {item.title || "Untitled Conversation"}
-                      </span>
-                      <button
-                        type="button"
-                        className="sidebar-recent-delete-btn"
-                        title="Delete conversation"
-                        aria-label="Delete conversation"
-                        onClick={(e) => handleDeleteRecent(e, itemId)}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </Link>
-                  );
-                })
+        {!collapsed && (() => {
+          const pinnedItems = recents.filter((item) => item.isPinned);
+          const unpinnedItems = recents.filter((item) => !item.isPinned);
+
+          return (
+            <div>
+              {pinnedItems.length > 0 && (
+                <div style={{ marginBottom: "14px" }}>
+                  <div className="sidebar-section-label" style={{ display: "flex", alignItems: "center", gap: "5px", color: "#60a5fa" }}>
+                    <Pin size={11} style={{ transform: "rotate(45deg)" }} />
+                    <span>Pinned ({pinnedItems.length})</span>
+                  </div>
+                  <div className="sidebar-nav">
+                    {pinnedItems.map(renderConversationItem)}
+                  </div>
+                </div>
               )}
+
+              <div className="sidebar-section-label">Recents</div>
+              <div className="sidebar-nav">
+                {loadingRecents && recents.length === 0 ? (
+                  <div className="sidebar-empty-recents">Loading chats...</div>
+                ) : unpinnedItems.length === 0 && pinnedItems.length === 0 ? (
+                  <div className="sidebar-empty-recents">No recent chats</div>
+                ) : (
+                  unpinnedItems.map(renderConversationItem)
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Footer / Profile (Matches Screenshot: Priyanshu Jindal - PJ - Go) */}

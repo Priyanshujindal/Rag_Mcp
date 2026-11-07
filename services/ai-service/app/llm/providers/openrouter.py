@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/llm/providers/openrouter.py
 ================================
 OpenRouter LLM Provider using OpenAI-compatible API.
@@ -68,58 +68,78 @@ class OpenRouterLLMProvider(BaseLLMProvider):
             "X-Title": "Rag_Mcp",  # Optional: for OpenRouter analytics
         }
 
+        models_to_try = [target_model]
+        if target_model != "openrouter/free":
+            models_to_try.append("openrouter/free")
+
         timeout = httpx.Timeout(connect=10.0, read=45.0, write=10.0, pool=10.0)
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             try:
-                async with client.stream("POST", url, json=payload, headers=headers) as response:
-                    if response.status_code != 200:
-                        err_body = await response.aread()
-                        logger.error(
-                            f"OpenRouter API error {response.status_code}: {err_body.decode('utf-8', errors='replace')}"
-                        )
-                        raise RuntimeError(f"OpenRouter streaming failed with status {response.status_code}")
+                for current_model in models_to_try:
+                    payload["model"] = current_model
+                    async with client.stream("POST", url, json=payload, headers=headers) as response:
+                        if response.status_code != 200:
+                            err_body = await response.aread()
+                            err_str = err_body.decode("utf-8", errors="replace")
+                            try:
+                                err_json = json.loads(err_str)
+                                err_msg = err_json.get("error", {}).get("message") or err_str
+                            except Exception:
+                                err_msg = err_str
 
-                    async for line in response.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
+                            # If model not found or invalid on OpenRouter, try fallback if available
+                            if (response.status_code in (400, 404) or "model" in err_msg.lower()) and len(models_to_try) > 1 and current_model != models_to_try[-1]:
+                                logger.warning(
+                                    f"Model '{current_model}' failed on OpenRouter ({response.status_code}: {err_msg}), retrying with '{models_to_try[-1]}'"
+                                )
+                                continue
 
-                        raw_data = line[len("data: ") :].strip()
-                        if not raw_data or raw_data == "[DONE]":
-                            continue
-
-                        try:
-                            chunk_data = json.loads(raw_data)
-                        except json.JSONDecodeError:
-                            continue
-
-                        # Extract delta from OpenAI format
-                        choices = chunk_data.get("choices", [])
-                        if not choices:
-                            continue
-
-                        first_choice = choices[0]
-                        delta = first_choice.get("delta", {})
-                        delta_text = delta.get("content", "")
-                        finish_reason = first_choice.get("finish_reason")
-
-                        # Extract usage if present
-                        usage = None
-                        usage_data = chunk_data.get("usage")
-                        if usage_data:
-                            usage = StreamUsage(
-                                prompt_tokens=usage_data.get("prompt_tokens", 0),
-                                completion_tokens=usage_data.get("completion_tokens", 0),
-                                total_tokens=usage_data.get("total_tokens", 0),
+                            logger.error(
+                                f"OpenRouter API error {response.status_code}: {err_msg}"
                             )
+                            raise RuntimeError(f"OpenRouter error ({response.status_code}): {err_msg}")
 
-                        if delta_text or usage or finish_reason:
-                            yield StreamChunk(
-                                delta=delta_text,
-                                usage=usage,
-                                finish_reason=finish_reason,
-                            )
+                        async for line in response.aiter_lines():
+                            if not line or not line.startswith("data: "):
+                                continue
 
+                            raw_data = line[len("data: ") :].strip()
+                            if not raw_data or raw_data == "[DONE]":
+                                continue
+
+                            try:
+                                chunk_data = json.loads(raw_data)
+                            except json.JSONDecodeError:
+                                continue
+
+                            # Extract delta from OpenAI format
+                            choices = chunk_data.get("choices", [])
+                            if not choices:
+                                continue
+
+                            first_choice = choices[0]
+                            delta = first_choice.get("delta", {})
+                            delta_text = delta.get("content", "")
+                            finish_reason = first_choice.get("finish_reason")
+
+                            # Extract usage if present
+                            usage = None
+                            usage_data = chunk_data.get("usage")
+                            if usage_data:
+                                usage = StreamUsage(
+                                    prompt_tokens=usage_data.get("prompt_tokens", 0),
+                                    completion_tokens=usage_data.get("completion_tokens", 0),
+                                    total_tokens=usage_data.get("total_tokens", 0),
+                                )
+
+                            if delta_text or usage or finish_reason:
+                                yield StreamChunk(
+                                    delta=delta_text,
+                                    usage=usage,
+                                    finish_reason=finish_reason,
+                                )
+                        return  # Successfully streamed from provider
             except httpx.TimeoutException as exc:
                 logger.error(f"OpenRouter API request timed out: {exc}")
                 raise RuntimeError("OpenRouter API connection timed out") from exc

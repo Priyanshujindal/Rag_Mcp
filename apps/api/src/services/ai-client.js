@@ -310,6 +310,42 @@ class AiServiceClient {
       maxRetries: 1,
     });
   }
+
+  /**
+   * Parse an ad-hoc attached file (PDF, TXT, CSV) via Python ai-service.
+   * @param {string} workspaceId
+   * @param {string} filename
+   * @param {Buffer} buffer
+   * @param {string} [mimeType="application/octet-stream"]
+   * @returns {Promise<{ filename: string, text: string, characterCount: number, pages: number }>}
+   */
+  async parseDocument(workspaceId, filename, buffer, mimeType = "application/octet-stream") {
+    return this._request(workspaceId, "/parse-document", {
+      method: "POST",
+      body: {
+        filename,
+        content_base64: buffer.toString("base64"),
+        mime_type: mimeType,
+      },
+      timeoutMs: 15000,
+      maxRetries: 1,
+    });
+  }
+
+  /**
+   * Run benchmark evaluation on a knowledge base
+   * @param {string} workspaceId
+   * @param {object} payload { knowledgeBaseId, dataset_name, queries, top_k, strategy }
+   * @returns {Promise<object>}
+   */
+  async evaluate(workspaceId, payload) {
+    return this._request(workspaceId, "/evaluate", {
+      method: "POST",
+      body: payload,
+      timeoutMs: 60000,
+      maxRetries: 1,
+    });
+  }
 }
 
 export const aiClient = new AiServiceClient();

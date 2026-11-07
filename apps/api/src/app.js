@@ -1,4 +1,4 @@
-﻿import crypto from "crypto";
+import crypto from "crypto";
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -27,6 +27,7 @@ import conversationsRoutes from "./modules/conversations/conversations.routes.js
 import webhooksRoutes from "./modules/webhooks/webhooks.routes.js";
 import publicApiRoutes from "./modules/public-api/v1.routes.js";
 import chatRoutes from "./modules/chat/chat.routes.js";
+import evalsRoutes from "./modules/evals/evals.routes.js";
 
 /**
  * Builds and configures the Express application
@@ -177,6 +178,7 @@ export function createApp() {
   app.use("/api/v1/mcp", mcpRoutes);
   app.use("/api/v1/usage", usageRoutes);
   app.use("/api/v1/chat", chatRoutes);
+  app.use("/api/v1/evals", evalsRoutes);
 
   // 10. Minimal 501 Stubs
   app.use("/api/v1/analytics", analyticsRoutes);

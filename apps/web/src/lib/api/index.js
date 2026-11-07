@@ -40,6 +40,9 @@ export const getMockMcpServers = dispatch("getMockMcpServers");
 export const getMockApiKeys = dispatch("getMockApiKeys");
 export const getMockUsageMetrics = dispatch("getMockUsageMetrics");
 export const getMockEvalRuns = dispatch("getMockEvalRuns");
+export const getEvalRunDetails = dispatch("getEvalRunDetails");
+export const runEvaluation = dispatch("runEvaluation");
+export const deleteEvalRun = dispatch("deleteEvalRun");
 
 // Mutations
 export const loginUser = dispatch("loginUser");

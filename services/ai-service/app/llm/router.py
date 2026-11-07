@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/llm/router.py
 =================
 Dynamic router for LLM streaming providers based on model identifier and configuration.
@@ -21,27 +21,28 @@ _ollama_instance: Optional[OllamaLLMProvider] = None
 _openrouter_instance: Optional[OpenRouterLLMProvider] = None
 
 
-def get_llm_provider(model: Optional[str] = None) -> BaseLLMProvider:
+def get_llm_provider(model: Optional[str] = None, provider: Optional[str] = None) -> BaseLLMProvider:
     """
-    Selects and returns an LLM provider instance based on model name prefix or available credentials.
+    Selects and returns an LLM provider instance based on provider name, model prefix, or available credentials.
     """
     global _gemini_instance, _openai_instance, _ollama_instance, _openrouter_instance
     settings = get_settings()
 
+    prov_lower = (provider or "").lower().strip()
     model_lower = (model or "").lower().strip()
 
-    # OpenRouter models (check first for specific routing)
-    if any(prefix in model_lower for prefix in ("nvidia/", "google/gemma", "cohere/", "recursivellm/", "openrouter/free")):
+    # OpenRouter explicit provider or OpenRouter models
+    if prov_lower == "openrouter" or any(prefix in model_lower for prefix in ("nvidia/", "google/gemma", "cohere/", "recursivellm/", "openrouter/free")):
         if not settings.OPENROUTER_API_KEY:
-            raise ValueError(f"Model '{model}' requested, but OPENROUTER_API_KEY is not configured.")
+            raise ValueError(f"OpenRouter requested ('{model}'), but OPENROUTER_API_KEY is not configured.")
         if _openrouter_instance is None:
             _openrouter_instance = OpenRouterLLMProvider(api_key=settings.OPENROUTER_API_KEY)
         return _openrouter_instance
 
-    # Gemini models
-    if model_lower.startswith("gemini"):
+    # Gemini explicit provider or Gemini models
+    if prov_lower == "gemini" or model_lower.startswith("gemini"):
         if not settings.GEMINI_API_KEY:
-            raise ValueError(f"Model '{model}' requested, but GEMINI_API_KEY is not configured.")
+            raise ValueError(f"Gemini requested ('{model}'), but GEMINI_API_KEY is not configured.")
         if _gemini_instance is None:
             _gemini_instance = GeminiLLMProvider(api_key=settings.GEMINI_API_KEY)
         return _gemini_instance

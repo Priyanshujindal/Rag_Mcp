@@ -17,7 +17,7 @@ export const conversationsService = {
 
     const [items, total] = await Promise.all([
       Conversation.find(filter)
-        .sort({ updatedAt: -1, createdAt: -1 })
+        .sort({ isPinned: -1, updatedAt: -1, createdAt: -1 })
         .skip(skip)
         .limit(limitNum),
       Conversation.countDocuments(filter),
@@ -37,13 +37,22 @@ export const conversationsService = {
   /**
    * Get a single conversation by ID with its messages.
    */
-  async getById(workspaceId, id) {
-    const conversation = await Conversation.findOne({ _id: id, workspaceId });
+  async getById(workspaceId, id, userId = null) {
+    const query = { _id: id };
+    if (workspaceId && userId) {
+      query.$or = [{ workspaceId }, { userId }];
+    } else if (workspaceId) {
+      query.workspaceId = workspaceId;
+    } else if (userId) {
+      query.userId = userId;
+    }
+
+    const conversation = await Conversation.findOne(query);
     if (!conversation) {
       throw AppError.notFound("Conversation not found");
     }
 
-    const messages = await Message.find({ conversationId: id, workspaceId })
+    const messages = await Message.find({ conversationId: conversation._id })
       .sort({ createdAt: 1 })
       .limit(100);
 
@@ -72,34 +81,51 @@ export const conversationsService = {
   },
 
   /**
-   * Update conversation title.
+   * Update conversation title and/or pin status.
    */
-  async update(workspaceId, id, { title }) {
-    const conversation = await Conversation.findOne({ _id: id, workspaceId });
+  async update(workspaceId, id, { title, isPinned }, userId = null) {
+    const query = { _id: id };
+    if (workspaceId && userId) {
+      query.$or = [{ workspaceId }, { userId }];
+    } else if (workspaceId) {
+      query.workspaceId = workspaceId;
+    }
+
+    const conversation = await Conversation.findOne(query);
     if (!conversation) {
       throw AppError.notFound("Conversation not found");
     }
 
-    if (title && typeof title === "string") {
+    if (title !== undefined && typeof title === "string") {
       conversation.title = titleGeneratorService.formatTitleCase(title.trim());
-      await conversation.save();
+    }
+    if (isPinned !== undefined) {
+      conversation.isPinned = Boolean(isPinned);
     }
 
+    await conversation.save();
     return conversation.toJSON();
   },
 
   /**
    * Delete a conversation and its messages.
    */
-  async delete(workspaceId, id) {
-    const conversation = await Conversation.findOne({ _id: id, workspaceId });
+  async delete(workspaceId, id, userId = null) {
+    const query = { _id: id };
+    if (workspaceId && userId) {
+      query.$or = [{ workspaceId }, { userId }];
+    } else if (workspaceId) {
+      query.workspaceId = workspaceId;
+    }
+
+    const conversation = await Conversation.findOne(query);
     if (!conversation) {
       throw AppError.notFound("Conversation not found");
     }
 
     await Promise.all([
-      Message.deleteMany({ conversationId: id, workspaceId }),
-      Conversation.deleteOne({ _id: id, workspaceId }),
+      Message.deleteMany({ conversationId: conversation._id }),
+      Conversation.deleteOne({ _id: conversation._id }),
     ]);
 
     return { success: true, id };

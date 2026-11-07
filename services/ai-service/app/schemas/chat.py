@@ -15,13 +15,19 @@ from app.rag.prompt_builder import ChatMessage
 
 class ChatRequest(BaseModel):
     """Payload for POST /chat (SSE)."""
+    model_config = {"populate_by_name": True}
 
     knowledgeBaseId: Optional[str] = Field(default=None, description="Optional Knowledge base 24-hex ObjectId for RAG")
     mode: Literal["rag", "general"] = Field(default="rag", description="Chat mode: 'rag' or 'general'")
     message: str = Field(..., min_length=1, max_length=4000, description="Latest user message")
     conversationId: Optional[str] = Field(default=None, description="Optional conversation tracking ID")
     history: List[ChatMessage] = Field(default_factory=list, description="Prior conversation turns")
+    provider: Optional[str] = Field(default=None, description="Requested LLM provider name (e.g. 'gemini', 'openrouter')")
     model: Optional[str] = Field(default=None, description="Requested LLM model name")
+    web_search: bool = Field(default=False, alias="webSearch", description="Enable global live web search for up-to-date facts")
+    is_thinking: bool = Field(default=False, alias="isThinking", description="Enable deeper reasoning / thinking process")
+    attached_document: Optional[dict] = Field(default=None, alias="attachedDocument", description="Direct ad-hoc document context { name, content, type, size }")
+    attached_documents: Optional[List[dict]] = Field(default=None, alias="attachedDocuments", description="Multiple ad-hoc documents [{ name, content, type, size }]")
     custom_prompt: Optional[str] = Field(default=None, description="Custom bot persona/instructions")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1, le=8192)
@@ -63,5 +69,13 @@ class TitleResponse(BaseModel):
     """Response from POST /generate-title."""
 
     title: str = Field(..., description="Generated concise conversation title")
+
+
+class ParseDocumentRequest(BaseModel):
+    """Payload for POST /parse-document."""
+
+    filename: str = Field(..., description="Uploaded file name")
+    content_base64: str = Field(..., description="Base64-encoded document content")
+    mime_type: Optional[str] = Field(default=None, description="MIME type if known")
 
 

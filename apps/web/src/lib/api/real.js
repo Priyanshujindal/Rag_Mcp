@@ -249,8 +249,28 @@ export async function getMockUsageMetrics() {
 }
 
 export async function getMockEvalRuns() {
+  try {
+    const data = await api.get("/evals");
+    if (Array.isArray(data) && data.length > 0) {
+      return data;
+    }
+  } catch (err) {
+    console.warn("Failed to fetch real evals, using mock:", err);
+  }
   const { mockEvalRuns } = await import("../mock/data.js");
   return mockEvalRuns;
+}
+
+export async function runEvaluation(payload) {
+  return api.post("/evals/run", payload);
+}
+
+export async function getEvalRunDetails(id) {
+  return api.get(`/evals/${id}`);
+}
+
+export async function deleteEvalRun(id) {
+  return api.delete(`/evals/${id}`);
 }
 
 // ── Real Mutation Functions ──

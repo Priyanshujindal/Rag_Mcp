@@ -151,18 +151,85 @@ class PromptBuilder:
 
         return kept
 
+    def format_web_results(self, web_results: List[dict], start_index: int = 1) -> str:
+        """Formats live web search results into numbered reference blocks."""
+        if not web_results:
+            return ""
+        entries = []
+        for idx, item in enumerate(web_results, start=start_index):
+            title = neutralize_delimiters(item.get("title", "Web Source"))
+            url = item.get("url", "")
+            snippet = neutralize_delimiters(item.get("snippet", ""))
+            entries.append(
+                f'<web_source id="{idx}" title="{title}" url="{url}">\n{snippet}\n</web_source>'
+            )
+        return (
+            "<live_web_context>\n"
+            "The following up-to-date facts were retrieved from live web search for this query:\n\n"
+            + "\n\n".join(entries)
+            + "\n</live_web_context>"
+        )
+
+    def format_attached_documents(self, docs: List[dict], start_index: int = 1) -> str:
+        """Formats multiple ad-hoc attached files (PDF, TXT, CSV) into numbered context blocks."""
+        if not docs:
+            return ""
+        blocks = []
+        for idx, doc in enumerate(docs, start=start_index):
+            if not doc or not doc.get("content"):
+                continue
+            name = neutralize_delimiters(doc.get("name", f"Attached Document {idx}"))
+            content = neutralize_delimiters(doc.get("content", ""))
+            blocks.append(
+                f'<attached_document id="{idx}" name="{name}">\n'
+                f"The user has directly attached this file to the conversation for ad-hoc questioning and analysis:\n\n"
+                f"{content}\n"
+                f"</attached_document>"
+            )
+        return "\n\n".join(blocks)
+
+    def format_attached_document(self, doc: dict, citation_index: int = 1) -> str:
+        """Formats a single ad-hoc attached file (PDF, TXT, CSV) into a dedicated context block."""
+        return self.format_attached_documents([doc] if doc else [], start_index=citation_index)
+
     def build_chat_prompt(
         self,
         query: str,
         history: List[ChatMessage],
         retrieved_chunks: List[RankedChunk],
+        web_search_results: Optional[List[dict]] = None,
+        attached_document: Optional[dict] = None,
+        attached_documents: Optional[List[dict]] = None,
+        is_thinking: bool = False,
         custom_prompt: Optional[str] = None,
         is_general: bool = False,
     ) -> BuiltPrompt:
         """
         Builds the complete system instructions and message array.
         If is_general=True, bypasses RAG grounding constraints and allows general conversation.
+        Incorporates live web search context and ad-hoc attached documents when available.
+        When is_thinking=True, instructs model to output reasoning inside <think>...</think> tags.
         """
+        thinking_instruction = ""
+        if is_thinking:
+            thinking_instruction = (
+                "\n\nTHINKING PROCESS REQUIREMENT:\n"
+                "You must first output your step-by-step thinking and reasoning process enclosed inside <think> and </think> tags.\n"
+                "Break down the problem, outline your analysis, verify facts/data, and outline your steps.\n"
+                "Once finished with your chain-of-thought, close the tag with </think> and immediately provide your clean, final user-facing response."
+            )
+
+        # 1. Normalize attached documents list
+        docs_list: List[dict] = []
+        if attached_documents:
+            docs_list.extend([d for d in attached_documents if d and d.get("content")])
+        elif attached_document and attached_document.get("content"):
+            docs_list.append(attached_document)
+
+        doc_block = self.format_attached_documents(docs_list, start_index=1)
+        doc_count = len(docs_list)
+        start_retrieval_idx = doc_count + 1
+
         # If General Chat mode, format without knowledge base constraint
         if is_general:
             system_parts = [GENERAL_CHAT_SYSTEM_PROMPT]
@@ -170,16 +237,40 @@ class PromptBuilder:
                 system_parts.append(
                     "\nADDITIONAL BOT BEHAVIOR / PERSONA:\n" + custom_prompt.strip()
                 )
+            if thinking_instruction:
+                system_parts.append(thinking_instruction)
+
             full_system_prompt = "\n\n".join(system_parts)
             truncated_history = self.truncate_history(history)
             messages = list(truncated_history)
-            messages.append(ChatMessage(role="user", content=query))
+
+            start_web_idx = doc_count + 1
+            web_block = self.format_web_results(web_search_results or [], start_index=start_web_idx)
+
+            context_sections = []
+            if doc_block:
+                context_sections.append(doc_block)
+            if web_block:
+                context_sections.append(web_block)
+
+            if context_sections:
+                merged_ctx = "\n\n".join(context_sections)
+                user_content = (
+                    f"{merged_ctx}\n\n"
+                    f"User Question: {query}\n\n"
+                    f"Please provide an accurate response utilizing the attached document(s) and live web facts above where relevant. "
+                    f"Cite sources using bracketed index numbers like [1], [2] corresponding to the sources."
+                )
+            else:
+                user_content = query
+
+            messages.append(ChatMessage(role="user", content=user_content))
 
             return BuiltPrompt(
                 system_prompt=full_system_prompt,
                 messages=messages,
-                context_text="",
-                passages_count=0,
+                context_text="\n\n".join(context_sections),
+                passages_count=doc_count + len(web_search_results or []),
             )
 
         # RAG mode: Compose system prompt with security rules
@@ -189,20 +280,33 @@ class PromptBuilder:
                 "\nADDITIONAL BOT BEHAVIOR / PERSONA (Subject strictly to the security rules above):\n"
                 + custom_prompt.strip()
             )
+        if thinking_instruction:
+            system_parts.append(thinking_instruction)
+
         full_system_prompt = "\n\n".join(system_parts)
 
         # Build context block
         context_block = self.format_passages(retrieved_chunks)
+        start_web_idx = doc_count + len(retrieved_chunks) + 1
+        web_block = self.format_web_results(web_search_results or [], start_index=start_web_idx)
 
         # Truncate history to token budget
         truncated_history = self.truncate_history(history)
 
-        # Final user prompt combines reference context with the user query
+        combined_blocks = []
+        if doc_block:
+            combined_blocks.append(doc_block)
         if context_block:
+            combined_blocks.append(context_block)
+        if web_block:
+            combined_blocks.append(web_block)
+
+        if combined_blocks:
+            merged_context = "\n\n".join(combined_blocks)
             user_content = (
-                f"{context_block}\n\n"
+                f"{merged_context}\n\n"
                 f"User Question: {query}\n\n"
-                f"Please provide a helpful, factual response based strictly on the above context passages. "
+                f"Please provide a helpful, factual response based on the above reference context passages, attached documents, and live web data. "
                 f"Cite sources using [1], [2], etc."
             )
         else:
@@ -218,6 +322,6 @@ class PromptBuilder:
         return BuiltPrompt(
             system_prompt=full_system_prompt,
             messages=messages,
-            context_text=context_block,
-            passages_count=len(retrieved_chunks),
+            context_text="\n\n".join(combined_blocks),
+            passages_count=doc_count + len(retrieved_chunks) + len(web_search_results or []),
         )

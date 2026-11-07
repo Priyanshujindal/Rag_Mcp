@@ -8,6 +8,9 @@ export async function streamChatMessage({
   conversationId,
   chatMode = "rag",
   isThinking = false,
+  isWebSearch = false,
+  attachedDocument = null,
+  attachedDocuments = null,
   options = {},
   onConversation,
   onChunk,
@@ -18,13 +21,13 @@ export async function streamChatMessage({
   const token = getAccessToken();
   const workspaceId = getActiveWorkspaceId();
 
-  if (chatMode === "rag" && !knowledgeBaseId) {
-    onError && onError(new Error("Please select a knowledge base for RAG mode, or switch to General Chat mode"));
+  if (chatMode === "rag" && !knowledgeBaseId && !attachedDocument && (!attachedDocuments || attachedDocuments.length === 0)) {
+    onError && onError(new Error("Please select a knowledge base for RAG mode, switch to General Chat mode, or attach a document"));
     return;
   }
 
   try {
-    console.log("Sending chat request:", { message, knowledgeBaseId, conversationId, chatMode, model, provider, workspaceId, isThinking, options });
+    console.log("Sending chat request:", { message, knowledgeBaseId, conversationId, chatMode, model, provider, workspaceId, isThinking, isWebSearch, attachedDocument, attachedDocuments, options });
     
     const response = await fetch(`${BASE_URL}/chat`, {
       method: "POST",
@@ -39,11 +42,17 @@ export async function streamChatMessage({
         knowledgeBaseId: chatMode === "general" ? null : knowledgeBaseId,
         chatMode,
         conversationId: conversationId || undefined,
-        model: model || "gemini-3.8-flash",
+        provider,
+        model: model || (provider === "openrouter" ? "nvidia/nemotron-3-ultra-550b-a55b:free" : "gemini-3.8-flash"),
+        webSearch: isWebSearch,
+        isThinking,
+        attachedDocument: attachedDocument || (attachedDocuments?.[0] || null),
+        attachedDocuments: attachedDocuments || (attachedDocument ? [attachedDocument] : null),
         history: [],
         options: {
           max_tokens: 4096,
           isThinking,
+          webSearch: isWebSearch,
           ...options,
         },
       }),
@@ -70,6 +79,8 @@ export async function streamChatMessage({
     const decoder = new TextDecoder();
     let buffer = "";
     let currentEvent = "";
+
+    let hasFinished = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -101,8 +112,19 @@ export async function streamChatMessage({
               continue;
             }
 
-            if (currentEvent === "error" || parsed?.code === "CHAT_ERROR" || (parsed?.message && !parsed?.delta)) {
-              const errMsg = parsed?.message || (typeof parsed === "string" ? parsed : "Chat stream error");
+            if (currentEvent === "done" || parsed?.done) {
+              if (!hasFinished) {
+                hasFinished = true;
+                onDone && onDone();
+              }
+              continue;
+            }
+
+            if (currentEvent === "error" || parsed?.code === "CHAT_ERROR" || parsed?.error) {
+              const errMsg =
+                parsed?.error?.message ||
+                parsed?.message ||
+                (typeof parsed === "string" ? parsed : "Chat stream error");
               onError && onError(new Error(errMsg));
               return;
             }
@@ -111,6 +133,8 @@ export async function streamChatMessage({
               onChunk && onChunk({ type: "token", delta: parsed.delta });
             } else if (Array.isArray(parsed)) {
               onChunk && onChunk({ type: "sources", sources: parsed });
+            } else if (currentEvent === "citations" && parsed?.citations) {
+              onChunk && onChunk({ type: "sources", sources: parsed.citations });
             }
           } catch (err) {
             console.warn("Parse error:", err);
@@ -119,9 +143,86 @@ export async function streamChatMessage({
       }
     }
 
-    onDone && onDone();
+    if (!hasFinished) {
+      hasFinished = true;
+      onDone && onDone();
+    }
   } catch (error) {
     console.error("Chat stream error:", error);
     onError && onError(error);
   }
+}
+
+/**
+ * Parses an ad-hoc attached file (PDF, TXT, CSV, MD, JSON).
+ * For text-based files, reads directly in the browser; for PDFs, uses the backend parser.
+ * @param {File} file
+ * @returns {Promise<{ name: string, content: string, size: number, type: string, characterCount: number, pages: number }>}
+ */
+export async function parseDocumentFile(file) {
+  if (!file) throw new Error("No file provided");
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+
+  // Instant browser reading for text/csv/markdown/json files
+  if (["txt", "csv", "tsv", "md", "json"].includes(ext)) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target?.result || "";
+        resolve({
+          name: file.name,
+          content: text,
+          size: file.size,
+          type: file.type || ext,
+          characterCount: text.length,
+          pages: 1,
+        });
+      };
+      reader.onerror = () => reject(new Error("Failed to read text file in browser"));
+      reader.readAsText(file);
+    });
+  }
+
+  // Upload to backend parser for PDF or rich document formats
+  const BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
+  const token = getAccessToken();
+  const workspaceId = getActiveWorkspaceId();
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${BASE_URL}/chat/parse-document`, {
+    method: "POST",
+    headers: {
+      ...(token && { Authorization: `Bearer ${token}` }),
+      ...(workspaceId && { "X-Workspace-Id": workspaceId }),
+    },
+    credentials: "include",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to parse document");
+  }
+
+  const data = await res.json();
+  return {
+    name: file.name,
+    content: data.text || "",
+    size: file.size,
+    type: file.type || "application/pdf",
+    characterCount: data.characterCount || (data.text || "").length,
+    pages: data.pages || 1,
+  };
+}
+
+/**
+ * Parses multiple ad-hoc attached files concurrently.
+ * @param {FileList|File[]} files
+ * @returns {Promise<Array<{ name: string, content: string, size: number, type: string, characterCount: number, pages: number }>>}
+ */
+export async function parseDocumentFiles(files) {
+  if (!files || !files.length) return [];
+  const list = Array.from(files);
+  return Promise.all(list.map((f) => parseDocumentFile(f)));
 }

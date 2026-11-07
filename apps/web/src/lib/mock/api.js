@@ -76,6 +76,56 @@ export async function getMockEvalRuns() {
   return state.evalRuns;
 }
 
+export async function runEvaluation(payload) {
+  await delay();
+  const newRun = {
+    id: `eval_${Date.now()}`,
+    testSuite: payload.testSuite || "RAG Golden Q&A Benchmark",
+    model: payload.model || "gemini-3.8-flash",
+    samplesCount: 4,
+    faithfulnessScore: 0.94,
+    relevanceScore: 0.91,
+    contextRecallScore: 0.88,
+    hallucinationRate: 0.05,
+    status: "completed",
+    runAt: new Date().toISOString(),
+    samples: [
+      {
+        id: "q1",
+        question: "What is the primary architecture and system purpose?",
+        hit: true,
+        faithfulnessScore: 0.95,
+        relevanceScore: 0.92,
+        contextRecallScore: 1.0,
+        isHallucinated: false,
+      },
+      {
+        id: "q2",
+        question: "How is authentication or access control managed?",
+        hit: true,
+        faithfulnessScore: 0.93,
+        relevanceScore: 0.90,
+        contextRecallScore: 0.85,
+        isHallucinated: false,
+      },
+    ],
+  };
+  state.evalRuns = [newRun, ...state.evalRuns];
+  return newRun;
+}
+
+export async function getEvalRunDetails(id) {
+  await delay();
+  const run = state.evalRuns.find((r) => r.id === id);
+  return run || state.evalRuns[0];
+}
+
+export async function deleteEvalRun(id) {
+  await delay();
+  state.evalRuns = state.evalRuns.filter((r) => r.id !== id);
+  return { success: true };
+}
+
 // ── Mutation Mock Implementations ──
 
 export async function loginUser({ email, password: _password }) {

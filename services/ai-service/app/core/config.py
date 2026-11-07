@@ -1,4 +1,4 @@
-﻿import os
+import os
 from pathlib import Path
 from typing import Literal
 from pydantic import Field, field_validator, model_validator
@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     # External Provider Keys
     GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key")
     OPENAI_API_KEY: str = Field(default="", description="OpenAI API key")
+    OPENROUTER_API_KEY: str = Field(default="", description="OpenRouter API key")
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434", description="Ollama server endpoint")
 
     # Server settings

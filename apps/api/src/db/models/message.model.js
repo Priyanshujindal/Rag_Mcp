@@ -35,6 +35,26 @@ const messageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    reasoning: {
+      type: String,
+      default: "",
+    },
+    attachedDocument: {
+      name: { type: String },
+      size: { type: Number },
+      type: { type: String },
+      content: { type: String, default: "" },
+    },
+    attachedDocuments: [
+      {
+        name: { type: String },
+        size: { type: Number },
+        type: { type: String },
+        content: { type: String, default: "" },
+        pages: { type: Number, default: 1 },
+        characterCount: { type: Number, default: 0 },
+      },
+    ],
     citations: {
       type: [citationSchema],
       default: [],

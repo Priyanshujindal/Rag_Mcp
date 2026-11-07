@@ -16,7 +16,8 @@ const createConversationSchema = z
 
 const updateConversationSchema = z
   .object({
-    title: z.string().min(1, "Title cannot be empty").max(200),
+    title: z.string().min(1, "Title cannot be empty").max(200).optional(),
+    isPinned: z.boolean().optional(),
   })
   .strict();
 

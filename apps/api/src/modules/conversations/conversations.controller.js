@@ -17,7 +17,7 @@ export const conversationsController = {
 
   async getById(req, res, next) {
     try {
-      const result = await conversationsService.getById(req.workspaceId, req.params.id);
+      const result = await conversationsService.getById(req.workspaceId, req.params.id, req.user?.id);
       res.status(200).json(result);
     } catch (err) {
       next(err);
@@ -39,9 +39,15 @@ export const conversationsController = {
 
   async update(req, res, next) {
     try {
-      const result = await conversationsService.update(req.workspaceId, req.params.id, {
-        title: req.body.title,
-      });
+      const result = await conversationsService.update(
+        req.workspaceId,
+        req.params.id,
+        {
+          title: req.body.title,
+          isPinned: req.body.isPinned,
+        },
+        req.user?.id
+      );
       res.status(200).json(result);
     } catch (err) {
       next(err);
@@ -50,7 +56,7 @@ export const conversationsController = {
 
   async delete(req, res, next) {
     try {
-      const result = await conversationsService.delete(req.workspaceId, req.params.id);
+      const result = await conversationsService.delete(req.workspaceId, req.params.id, req.user?.id);
       res.status(200).json(result);
     } catch (err) {
       next(err);

@@ -38,6 +38,7 @@ def test_router_selects_by_model_prefix():
     with patch("app.llm.router.get_settings") as mock_settings:
         mock_settings.return_value.GEMINI_API_KEY = "test-gemini-key"
         mock_settings.return_value.OPENAI_API_KEY = "test-openai-key"
+        mock_settings.return_value.OPENROUTER_API_KEY = "test-openrouter-key"
         mock_settings.return_value.OLLAMA_BASE_URL = "http://localhost:11434"
 
         # 1. Gemini
@@ -51,6 +52,15 @@ def test_router_selects_by_model_prefix():
         # 3. Ollama
         p3 = get_llm_provider("llama3.2")
         assert isinstance(p3, OllamaLLMProvider)
+
+        # 4. OpenRouter by model
+        from app.llm.providers.openrouter import OpenRouterLLMProvider
+        p4 = get_llm_provider("nvidia/nemotron-3-ultra-550b-a55b:free")
+        assert isinstance(p4, OpenRouterLLMProvider)
+
+        # 5. OpenRouter by provider parameter
+        p5 = get_llm_provider(provider="openrouter")
+        assert isinstance(p5, OpenRouterLLMProvider)
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,50 @@
-import React, { useState, useEffect } from "react";
-import { ChevronDown, History, Plus, Trash2, MessageSquare, Database, Sparkles } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  ChevronDown,
+  History,
+  Plus,
+  Trash2,
+  MessageSquare,
+  Database,
+  Sparkles,
+  Check,
+  X,
+  Pencil,
+  Pin,
+  Download,
+  FileText,
+  Code2,
+} from "lucide-react";
 import { api } from "@/lib/api/client";
+import { exportChat } from "@/lib/utils/chat-export";
+
+export const PROVIDER_OPTIONS = {
+  gemini: {
+    id: "gemini",
+    name: "Google Gemini",
+    defaultModel: "gemini-3.8-flash",
+    models: [
+      { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash ⭐" },
+      { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash" },
+      { id: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash Lite" },
+    ],
+  },
+  openrouter: {
+    id: "openrouter",
+    name: "OpenRouter",
+    defaultModel: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    models: [
+      { id: "nvidia/nemotron-3-ultra-550b-a55b:free", name: "NVIDIA Nemotron Ultra ⭐ (Free)" },
+      { id: "openrouter/free", name: "OpenRouter Free (Dynamic)" },
+      { id: "google/gemma-4:free", name: "Google Gemma 4 (Free)" },
+    ],
+  },
+};
 
 export function ChatHeader({ 
-  selectedProvider, 
+  selectedProvider = "gemini", 
   setSelectedProvider,
-  selectedModel,
+  selectedModel = "gemini-3.8-flash",
   setSelectedModel,
   knowledgeBaseId,
   setKnowledgeBaseId,
@@ -16,12 +55,54 @@ export function ChatHeader({
   selectConversation,
   newConversation,
   deleteConversation,
+  renameConversation,
+  togglePinConversation,
   isLoadingConversations,
+  messages = [],
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [knowledgeBases, setKnowledgeBases] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+
+  const activeConversation = conversations.find(
+    (c) => (c.id || c._id) === conversationId
+  );
+  const activeTitle = activeConversation?.title || "New Conversation";
+  const isPinned = Boolean(activeConversation?.isPinned);
+
+  const selectorRef = useRef(null);
+  const historyRef = useRef(null);
+  const exportRef = useRef(null);
+
+  const handleSaveTitle = () => {
+    if (draftTitle && draftTitle.trim() && conversationId) {
+      renameConversation && renameConversation(conversationId, draftTitle.trim());
+    }
+    setIsEditingTitle(false);
+  };
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (selectorRef.current && !selectorRef.current.contains(event.target)) {
+        setDropdownOpen(false);
+      }
+      if (historyRef.current && !historyRef.current.contains(event.target)) {
+        setHistoryOpen(false);
+      }
+      if (exportRef.current && !exportRef.current.contains(event.target)) {
+        setExportOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -50,9 +131,47 @@ export function ChatHeader({
       });
   }, []);
 
+  const handleProviderSelect = (newProv) => {
+    setSelectedProvider && setSelectedProvider(newProv);
+    if (newProv === "openrouter") {
+      setSelectedModel && setSelectedModel("nvidia/nemotron-3-ultra-550b-a55b:free");
+    } else {
+      setSelectedModel && setSelectedModel("gemini-3.8-flash");
+    }
+  };
+
   const currentKB = Array.isArray(knowledgeBases) 
     ? knowledgeBases.find(kb => kb && (kb._id === knowledgeBaseId || kb.id === knowledgeBaseId))
     : null;
+
+  const providerName = selectedProvider === "openrouter" ? "OpenRouter" : "Google Gemini";
+  const modelShortName = selectedModel
+    ? selectedModel.includes("nemotron")
+      ? "Nemotron Ultra"
+      : selectedModel.includes("gemma")
+      ? "Gemma 4"
+      : selectedModel.includes("openrouter/free")
+      ? "OpenRouter Free"
+      : selectedModel.includes("3.8")
+      ? "Gemini 3.8 Flash"
+      : selectedModel.includes("3.6")
+      ? "Gemini 3.6 Flash"
+      : selectedModel.includes("3.5")
+      ? "Gemini 3.5 Lite"
+      : selectedModel
+    : "Gemini 3.8 Flash";
+
+  const selectorLabel =
+    chatMode === "general"
+      ? `✨ ${providerName} (${modelShortName})`
+      : currentKB
+      ? `📚 ${currentKB.name} • ${providerName}`
+      : loading
+      ? "Loading..."
+      : `Select Knowledge Base • ${providerName}`;
+
+  const availableModels =
+    PROVIDER_OPTIONS[selectedProvider]?.models || PROVIDER_OPTIONS.gemini.models;
 
   return (
     <div className="chat-selector-header">
@@ -84,21 +203,14 @@ export function ChatHeader({
         </div>
 
         {/* Context / Provider Dropdown */}
-        <div className="chat-selector-wrapper">
+        <div className="chat-selector-wrapper" ref={selectorRef}>
           <button
             type="button"
             className="chat-selector-btn"
             onClick={() => setDropdownOpen(!dropdownOpen)}
+            title="Switch AI Provider, Model, or Knowledge Base"
           >
-            <span className="selector-label">
-              {chatMode === "general"
-                ? `✨ Direct LLM (${selectedModel})`
-                : currentKB
-                ? currentKB.name
-                : loading
-                ? "Loading..."
-                : "Select Knowledge Base"}
-            </span>
+            <span className="selector-label">{selectorLabel}</span>
             <ChevronDown size={14} />
           </button>
 
@@ -108,7 +220,7 @@ export function ChatHeader({
                 <div className="dropdown-label">AI Provider</div>
                 <select
                   value={selectedProvider}
-                  onChange={(e) => setSelectedProvider(e.target.value)}
+                  onChange={(e) => handleProviderSelect(e.target.value)}
                   className="dropdown-select"
                 >
                   <option value="gemini">Google Gemini</option>
@@ -120,22 +232,14 @@ export function ChatHeader({
                 <div className="dropdown-label">Model</div>
                 <select
                   value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
+                  onChange={(e) => setSelectedModel && setSelectedModel(e.target.value)}
                   className="dropdown-select"
                 >
-                  {selectedProvider === "gemini" ? (
-                    <>
-                      <option value="gemini-3.8-flash">Gemini 3.8 Flash ⭐</option>
-                      <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
-                      <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="nvidia/nemotron-3-ultra-550b-a55b:free">NVIDIA Nemotron Ultra ⭐</option>
-                      <option value="openrouter/free">OpenRouter Free</option>
-                      <option value="google/gemma-4:free">Google Gemma 4</option>
-                    </>
-                  )}
+                  {availableModels.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -176,8 +280,137 @@ export function ChatHeader({
       </div>
 
       <div className="chat-header-right">
+        {/* Active Conversation Title & Rename / Pin Pill */}
+        {conversationId && (
+          <div className="chat-header-title-badge">
+            {isEditingTitle ? (
+              <div className="header-title-edit-form">
+                <input
+                  type="text"
+                  className="header-title-input"
+                  value={draftTitle}
+                  autoFocus
+                  onChange={(e) => setDraftTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveTitle();
+                    if (e.key === "Escape") setIsEditingTitle(false);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="header-icon-action check"
+                  title="Save title"
+                  onClick={handleSaveTitle}
+                >
+                  <Check size={12} />
+                </button>
+                <button
+                  type="button"
+                  className="header-icon-action cancel"
+                  title="Cancel"
+                  onClick={() => setIsEditingTitle(false)}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ) : (
+              <div className="header-title-display">
+                <span
+                  className="header-conversation-name"
+                  title={`${activeTitle} (Double-click to rename)`}
+                  onDoubleClick={() => {
+                    setDraftTitle(activeTitle);
+                    setIsEditingTitle(true);
+                  }}
+                >
+                  {activeTitle}
+                </span>
+                <button
+                  type="button"
+                  className={`header-icon-action pin ${isPinned ? "pinned" : ""}`}
+                  title={isPinned ? "Unpin chat" : "Pin chat to top"}
+                  onClick={() => togglePinConversation && togglePinConversation(conversationId, isPinned)}
+                >
+                  <Pin size={12} className={isPinned ? "fill-current" : ""} />
+                </button>
+                <button
+                  type="button"
+                  className="header-icon-action edit"
+                  title="Rename chat"
+                  onClick={() => {
+                    setDraftTitle(activeTitle);
+                    setIsEditingTitle(true);
+                  }}
+                >
+                  <Pencil size={12} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Export Chat Dropdown */}
+        <div className="chat-export-wrapper" ref={exportRef}>
+          <button
+            type="button"
+            className={`chat-header-btn ${exportOpen ? "active" : ""}`}
+            disabled={!messages || messages.length === 0}
+            onClick={() => setExportOpen(!exportOpen)}
+            title={messages && messages.length > 0 ? "Export conversation" : "No messages to export"}
+          >
+            <Download size={14} />
+            <span>Export</span>
+          </button>
+
+          {exportOpen && (
+            <div className="chat-export-dropdown">
+              <div className="export-dropdown-header">Export Conversation</div>
+              <button
+                type="button"
+                className="export-dropdown-item"
+                onClick={() => {
+                  exportChat({
+                    title: activeTitle,
+                    messages,
+                    provider: selectedProvider,
+                    model: selectedModel,
+                    format: "markdown",
+                  });
+                  setExportOpen(false);
+                }}
+              >
+                <FileText size={14} />
+                <div className="export-item-meta">
+                  <span className="export-item-title">Markdown (.md)</span>
+                  <span className="export-item-desc">Formatted transcript with source citations</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                className="export-dropdown-item"
+                onClick={() => {
+                  exportChat({
+                    title: activeTitle,
+                    messages,
+                    provider: selectedProvider,
+                    model: selectedModel,
+                    format: "json",
+                  });
+                  setExportOpen(false);
+                }}
+              >
+                <Code2 size={14} />
+                <div className="export-item-meta">
+                  <span className="export-item-title">JSON (.json)</span>
+                  <span className="export-item-desc">Structured messages & metadata</span>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Past Conversations history dropdown */}
-        <div className="chat-history-wrapper">
+        <div className="chat-history-wrapper" ref={historyRef}>
           <button
             type="button"
             className={`chat-header-btn ${historyOpen ? "active" : ""}`}
