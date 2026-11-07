@@ -19,10 +19,10 @@ from fastapi.responses import StreamingResponse
 from app.core.config import get_settings
 from app.core.logging import logger
 from app.core.tenant import TenantContext, require_workspace_id, verify_internal_key
-from app.rag.prompt_builder import PromptBuilder, estimate_token_count
+from app.rag.prompt_builder import PromptBuilder, estimate_token_count, ChatMessage
 from app.rag.retriever import Retriever
 from app.rag.vector_store import get_vector_store
-from app.schemas.chat import ChatRequest
+from app.schemas.chat import ChatRequest, TitleRequest, TitleResponse
 from app.schemas.retrieval import RetrieveRequest, RetrieveResponse
 from app.llm.router import get_llm_provider
 from app.llm.streaming import StreamUsage, format_sse
@@ -122,47 +122,52 @@ async def chat(
 ) -> StreamingResponse:
     """POST /chat (SSE stream)."""
     workspace_id = ws_id
-    kb_id = ObjectId(body.knowledgeBaseId)
-    source_ids = [ObjectId(s) for s in body.source_ids] if body.source_ids else None
+    is_general = (body.mode == "general") or (not body.knowledgeBaseId)
+    kb_id = ObjectId(body.knowledgeBaseId) if (body.knowledgeBaseId and not is_general) else None
+    source_ids = [ObjectId(s) for s in body.source_ids] if (body.source_ids and not is_general) else None
 
     logger.info(
         "Chat request received",
         extra={
             "workspaceId": str(workspace_id),
-            "knowledgeBaseId": str(kb_id),
+            "knowledgeBaseId": str(kb_id) if kb_id else "NONE_GENERAL",
+            "mode": "general" if is_general else "rag",
             "model": body.model,
             "message_len": len(body.message),
         },
     )
 
-    # 1. Retrieve context
-    try:
-        retrieval_res = await retriever.retrieve(
-            workspace_id=workspace_id,
-            kb_id=kb_id,
-            query=body.message,
-            top_n=body.top_k * 3,
-            top_k=body.top_k,
-            min_score_threshold=body.min_score_threshold,
-            strategy=body.strategy,
-            vector_weight=body.vector_weight,
-            text_weight=body.text_weight,
-            source_ids=source_ids,
-        )
-    except Exception as exc:
-        logger.exception(f"Retrieval error in chat: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"code": "RETRIEVAL_ERROR", "message": "Failed to retrieve context for chat"},
-        )
+    retrieval_res = None
+    if not is_general and kb_id:
+        # 1. Retrieve context for RAG mode
+        try:
+            retrieval_res = await retriever.retrieve(
+                workspace_id=workspace_id,
+                kb_id=kb_id,
+                query=body.message,
+                top_n=body.top_k * 3,
+                top_k=body.top_k,
+                min_score_threshold=body.min_score_threshold,
+                strategy=body.strategy,
+                vector_weight=body.vector_weight,
+                text_weight=body.text_weight,
+                source_ids=source_ids,
+            )
+        except Exception as exc:
+            logger.exception(f"Retrieval error in chat: {exc}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"code": "RETRIEVAL_ERROR", "message": "Failed to retrieve context for chat"},
+            )
 
-    # 2. Build prompt with delimiter neutralization and untrusted data rules
+    # 2. Build prompt (general conversation vs RAG grounded)
     prompt_builder = PromptBuilder()
     built = prompt_builder.build_chat_prompt(
         query=body.message,
         history=body.history,
-        retrieved_chunks=retrieval_res.results,
+        retrieved_chunks=retrieval_res.results if retrieval_res else [],
         custom_prompt=body.custom_prompt,
+        is_general=is_general,
     )
 
     # 3. Select LLM provider
@@ -177,8 +182,8 @@ async def chat(
 
     # 4. SSE generator
     async def sse_event_stream() -> AsyncGenerator[str, None]:
-        # Send citations first so client UI can render sources immediately
-        citations_payload = [c.model_dump() for c in retrieval_res.citations]
+        # Send citations first if in RAG mode so client UI can render sources immediately
+        citations_payload = [c.model_dump() for c in retrieval_res.citations] if retrieval_res else []
         yield format_sse("citations", citations_payload)
 
         token_count = 0
@@ -231,3 +236,51 @@ async def chat(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post(
+    "/generate-title",
+    response_model=TitleResponse,
+    summary="Generate concise conversation title",
+    description="Analyzes the user's initial query and generates a concise, 3 to 5 word conversation title.",
+)
+async def generate_title(
+    body: TitleRequest,
+    _key: str = Depends(verify_internal_key),
+    ws_id: ObjectId = Depends(require_workspace_id),
+) -> TitleResponse:
+    """POST /generate-title - AI powered conversation title generation."""
+    prompt = (
+        "Generate a clear, high-signal, specific conversation title (3 to 5 words) for a chat that begins with this user message:\n\n"
+        f"\"{body.message.strip()}\"\n\n"
+        "Strict rules:\n"
+        "1. Return ONLY the title text. Do NOT include quotes, preambles like 'Title:', punctuation at the end, or emojis.\n"
+        "2. Capitalize properly in Title Case.\n"
+        "3. Maximum 5 words.\n"
+        "4. Focus on the core topic or technology."
+    )
+    model_name = body.model or "gemini-3.8-flash"
+    try:
+        provider = get_llm_provider(model_name)
+        full_text = ""
+        async for chunk in provider.stream_chat(
+            messages=[ChatMessage(role="user", content=prompt)],
+            system_prompt="You are an expert conversation title generator. Output only the short title.",
+            model=model_name,
+            temperature=0.3,
+            max_tokens=30,
+        ):
+            if chunk.delta:
+                full_text += chunk.delta
+
+        clean = full_text.strip().strip('"\'`').replace("\n", " ").strip()
+        if clean.lower().startswith("title:"):
+            clean = clean[6:].strip()
+
+        if clean and len(clean) >= 2:
+            return TitleResponse(title=clean[:60])
+    except Exception as exc:
+        logger.warning(f"AI title generation encountered an issue: {exc}")
+
+    return TitleResponse(title="New Conversation")
+

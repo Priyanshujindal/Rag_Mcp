@@ -5,8 +5,11 @@ export async function streamChatMessage({
   provider,
   model,
   knowledgeBaseId,
+  conversationId,
+  chatMode = "rag",
   isThinking = false,
   options = {},
+  onConversation,
   onChunk,
   onDone,
   onError,
@@ -15,13 +18,13 @@ export async function streamChatMessage({
   const token = getAccessToken();
   const workspaceId = getActiveWorkspaceId();
 
-  if (!knowledgeBaseId) {
-    onError && onError(new Error("Please select a knowledge base first"));
+  if (chatMode === "rag" && !knowledgeBaseId) {
+    onError && onError(new Error("Please select a knowledge base for RAG mode, or switch to General Chat mode"));
     return;
   }
 
   try {
-    console.log("Sending chat request:", { message, knowledgeBaseId, model, provider, workspaceId, isThinking, options });
+    console.log("Sending chat request:", { message, knowledgeBaseId, conversationId, chatMode, model, provider, workspaceId, isThinking, options });
     
     const response = await fetch(`${BASE_URL}/chat`, {
       method: "POST",
@@ -33,7 +36,9 @@ export async function streamChatMessage({
       credentials: "include",
       body: JSON.stringify({
         message,
-        knowledgeBaseId,
+        knowledgeBaseId: chatMode === "general" ? null : knowledgeBaseId,
+        chatMode,
+        conversationId: conversationId || undefined,
         model: model || "gemini-3.8-flash",
         history: [],
         options: {
@@ -88,6 +93,14 @@ export async function streamChatMessage({
           try {
             const parsed = JSON.parse(data);
             
+            if (currentEvent === "conversation" || parsed?.conversationId) {
+              onConversation && onConversation({
+                conversationId: parsed.conversationId,
+                title: parsed.title,
+              });
+              continue;
+            }
+
             if (currentEvent === "error" || parsed?.code === "CHAT_ERROR" || (parsed?.message && !parsed?.delta)) {
               const errMsg = parsed?.message || (typeof parsed === "string" ? parsed : "Chat stream error");
               onError && onError(new Error(errMsg));

@@ -18,6 +18,7 @@ export function Composer({
   isThinking,
   onToggleThinking,
   activeBot,
+  chatMode = "rag",
 }) {
   const textareaRef = useRef(null);
 
@@ -55,8 +56,14 @@ export function Composer({
         <textarea
           ref={textareaRef}
           className="chatgpt-input-textarea"
-          placeholder={activeBot ? `Ask ${activeBot.name} anything…` : "Ask ChatGPT"}
-          aria-label={activeBot ? `Ask ${activeBot.name} anything` : "Ask ChatGPT message input"}
+          placeholder={
+            activeBot
+              ? `Ask ${activeBot.name} anything…`
+              : chatMode === "general"
+              ? "Ask anything in General Chat (like ChatGPT)…"
+              : "Ask anything from Knowledge Base…"
+          }
+          aria-label={activeBot ? `Ask ${activeBot.name} anything` : "Ask message input"}
           rows={1}
           value={input}
           onChange={(e) => setInput(e.target.value)}

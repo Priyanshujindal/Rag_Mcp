@@ -1,20 +1,22 @@
 import React from "react";
 import { CodeBlock } from "./CodeBlock";
+import { parseMarkdownTable } from "../../lib/utils/markdown-table.js";
 
 /**
  * Parses inline Markdown: bold (**text**), italic (*text*), inline code (`code`), 
- * links ([text](url)), citation tags ([1], [2]), and HTML entities.
+ * links ([text](url)), citation tags ([1], [2]), line breaks (<br>), and HTML entities.
  */
 function parseInline(text) {
   if (!text) return text;
 
   // Pattern matches:
-  // 1. Links: [text](url)
-  // 2. Bold: **text**
-  // 3. Inline code: `code`
-  // 4. Citation brackets: [1], [2], etc.
-  // 5. Italic: *text* (when not bold)
-  const regex = /(\[(.*?)\]\((.*?)\)|\*\*(.*?)\*\*|`([^`]+)`|\[(\d+)\]|\*([^*]+)\*)/g;
+  // 1. Line breaks: <br> or <br/>
+  // 2. Links: [text](url)
+  // 3. Bold: **text**
+  // 4. Inline code: `code`
+  // 5. Citation brackets: [1], [2], etc.
+  // 6. Italic: *text* (when not bold)
+  const regex = /(<br\s*\/?>|\[(.*?)\]\((.*?)\)|\*\*(.*?)\*\*|`([^`]+)`|\[(\d+)\]|\*([^*]+)\*)/gi;
 
   const parts = [];
   let lastIdx = 0;
@@ -25,7 +27,9 @@ function parseInline(text) {
       parts.push(text.slice(lastIdx, match.index));
     }
 
-    if (match[1].startsWith("[") && match[3] !== undefined) {
+    if (match[1].toLowerCase().startsWith("<br")) {
+      parts.push(<br key={`br-${match.index}`} />);
+    } else if (match[1].startsWith("[") && match[3] !== undefined) {
       // Link [text](url)
       parts.push(
         <a
@@ -79,7 +83,7 @@ function parseInline(text) {
 }
 
 /**
- * Splits raw content into block elements (Code blocks, Headers, Lists, Paragraphs, HRs).
+ * Splits raw content into block elements (Code blocks, Headers, Lists, Paragraphs, HRs, Tables).
  */
 export function MarkdownRenderer({ content }) {
   if (!content) return null;
@@ -125,12 +129,7 @@ export function MarkdownRenderer({ content }) {
           );
         }
 
-        // Normalize divider separators like "---" and headings glued to dividers
-        const normalizedText = block.value
-          .replace(/\s*---\s*/g, "\n---\n")
-          .replace(/\s*\*\*\*\s*/g, "\n---\n");
-
-        const rawLines = normalizedText.split("\n");
+        const rawLines = block.value.split("\n");
         const renderedElements = [];
         let currentList = null; // { type: 'ul' | 'ol', items: [] }
 
@@ -169,7 +168,7 @@ export function MarkdownRenderer({ content }) {
           }
 
           // Horizontal rule
-          if (line === "---" || line === "***" || line === "___") {
+          if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(line)) {
             flushList();
             renderedElements.push(
               <hr key={`hr-${i}`} className="chat-md-hr" />
@@ -246,6 +245,56 @@ export function MarkdownRenderer({ content }) {
             }
             currentList.items.push(olMatch[2]);
             continue;
+          }
+
+          // Markdown Table
+          if (line.includes("|")) {
+            const tableData = parseMarkdownTable(rawLines, i);
+            if (tableData) {
+              flushList();
+              const { headers, alignments, rows, endIndex } = tableData;
+
+              renderedElements.push(
+                <div
+                  key={`table-wrapper-${renderedElements.length}`}
+                  className="chat-md-table-wrapper"
+                >
+                  <table className="chat-md-table">
+                    <thead>
+                      <tr className="chat-md-tr">
+                        {headers.map((h, hIdx) => (
+                          <th
+                            key={hIdx}
+                            style={{ textAlign: alignments[hIdx] || "left" }}
+                            className="chat-md-th"
+                          >
+                            {parseInline(h)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row, rIdx) => (
+                        <tr key={rIdx} className="chat-md-tr">
+                          {headers.map((_, cIdx) => (
+                            <td
+                              key={cIdx}
+                              style={{ textAlign: alignments[cIdx] || "left" }}
+                              className="chat-md-td"
+                            >
+                              {parseInline(row[cIdx] || "")}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+
+              i = endIndex;
+              continue;
+            }
           }
 
           // Regular paragraph line

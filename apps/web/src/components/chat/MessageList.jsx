@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import { Bot, Plus, Brain, Mic } from "lucide-react";
 import { MessageItem } from "./MessageItem";
 
@@ -19,7 +19,8 @@ export function MessageList({
   setInput,
   onSend,
   isThinking,
-  onToggleThinking
+  onToggleThinking,
+  chatMode = "rag",
 }) {
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
@@ -33,7 +34,9 @@ export function MessageList({
   if (!messages || messages.length === 0) {
     return (
       <div className="chatgpt-hero-container">
-        <h1 className="chatgpt-hero-title">Where should we begin?</h1>
+        <h1 className="chatgpt-hero-title">
+          {chatMode === "general" ? "What's on your mind today?" : "Where should we begin?"}
+        </h1>
         
         <div className="chatgpt-center-input-bar">
           <button type="button" className="input-bar-btn">
@@ -43,7 +46,11 @@ export function MessageList({
           <input
             type="text"
             className="chatgpt-bar-input"
-            placeholder="Ask anything..."
+            placeholder={
+              chatMode === "general"
+                ? "Ask anything in General Chat (like ChatGPT)..."
+                : "Ask anything from your Knowledge Base..."
+            }
             value={input || ""}
             onChange={(e) => setInput && setInput(e.target.value)}
             onKeyDown={handleKeyDown}

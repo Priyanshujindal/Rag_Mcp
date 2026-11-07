@@ -295,6 +295,21 @@ class AiServiceClient {
       reader.releaseLock();
     }
   }
+
+  /**
+   * Request AI-generated title for a conversation.
+   * @param {string} workspaceId
+   * @param {{ message: string, model?: string }} payload
+   * @returns {Promise<{ title: string }>}
+   */
+  async generateTitle(workspaceId, { message, model = "gemini-3.8-flash" }) {
+    return this._request(workspaceId, "/generate-title", {
+      method: "POST",
+      body: { message, model },
+      timeoutMs: 8000,
+      maxRetries: 1,
+    });
+  }
 }
 
 export const aiClient = new AiServiceClient();

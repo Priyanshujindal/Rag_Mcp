@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/rag/prompt_builder.py
 =========================
 RAG Prompt Construction with Security Hardening:
@@ -34,7 +34,7 @@ class BuiltPrompt(BaseModel):
     passages_count: int
 
 
-# Primary, immutable system prompt defining security boundary
+# Primary, immutable system prompt defining security boundary for RAG
 IMMUTABLE_SYSTEM_RULES = """You are a trustworthy, precise AI assistant answering user questions based on the provided reference context passages.
 
 CRITICAL SECURITY RULES:
@@ -45,6 +45,11 @@ CRITICAL SECURITY RULES:
 5. When NO context passages are provided (indicated by "No relevant knowledge base context was found"), you MUST respond with: "I don't have enough information in the knowledge base to answer that question." Do NOT attempt to answer from your general knowledge.
 6. Whenever you cite information from a passage, reference it using its bracketed index number, e.g. [1], [2]. Do not invent sources.
 """
+
+# System prompt for General Conversation mode (no Knowledge Base constraint)
+GENERAL_CHAT_SYSTEM_PROMPT = """You are a helpful, intelligent, and versatile AI assistant.
+Answer the user's questions clearly, accurately, and insightfully across all domains including programming, engineering, mathematics, reasoning, science, analysis, and general topics.
+Maintain a helpful, professional, and conversational tone, formatting responses clearly using GitHub Flavored Markdown (code blocks, bullet points, and tables) where appropriate."""
 
 # Characters or patterns that might attempt to close our XML-style delimiters
 DELIMITER_RE = re.compile(
@@ -152,20 +157,32 @@ class PromptBuilder:
         history: List[ChatMessage],
         retrieved_chunks: List[RankedChunk],
         custom_prompt: Optional[str] = None,
+        is_general: bool = False,
     ) -> BuiltPrompt:
         """
         Builds the complete system instructions and message array.
-
-        Structure:
-        - System instruction:
-            IMMUTABLE_SYSTEM_RULES
-            + [Optional custom bot persona / instructions]
-        - Context passages block:
-            Injected as reference data with strict boundaries.
-        - Conversation history (truncated to budget)
-        - Final user turn containing user query and isolated reference context.
+        If is_general=True, bypasses RAG grounding constraints and allows general conversation.
         """
-        # Compose system prompt
+        # If General Chat mode, format without knowledge base constraint
+        if is_general:
+            system_parts = [GENERAL_CHAT_SYSTEM_PROMPT]
+            if custom_prompt and custom_prompt.strip():
+                system_parts.append(
+                    "\nADDITIONAL BOT BEHAVIOR / PERSONA:\n" + custom_prompt.strip()
+                )
+            full_system_prompt = "\n\n".join(system_parts)
+            truncated_history = self.truncate_history(history)
+            messages = list(truncated_history)
+            messages.append(ChatMessage(role="user", content=query))
+
+            return BuiltPrompt(
+                system_prompt=full_system_prompt,
+                messages=messages,
+                context_text="",
+                passages_count=0,
+            )
+
+        # RAG mode: Compose system prompt with security rules
         system_parts = [IMMUTABLE_SYSTEM_RULES]
         if custom_prompt and custom_prompt.strip():
             system_parts.append(

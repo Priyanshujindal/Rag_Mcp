@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import { MessageList } from "@/components/chat/MessageList";
@@ -22,6 +22,14 @@ export default function ChatCanvas() {
     handleCopy,
     knowledgeBaseId,
     setKnowledgeBaseId,
+    chatMode,
+    setChatMode,
+    conversationId,
+    conversations,
+    selectConversation,
+    newConversation,
+    deleteConversation,
+    isLoadingConversations,
   } = useChat({
     provider: selectedProvider,
     model: selectedModel,
@@ -36,6 +44,14 @@ export default function ChatCanvas() {
         setSelectedModel={setSelectedModel}
         knowledgeBaseId={knowledgeBaseId}
         setKnowledgeBaseId={setKnowledgeBaseId}
+        chatMode={chatMode}
+        setChatMode={setChatMode}
+        conversationId={conversationId}
+        conversations={conversations}
+        selectConversation={selectConversation}
+        newConversation={newConversation}
+        deleteConversation={deleteConversation}
+        isLoadingConversations={isLoadingConversations}
       />
       
       <div className="chat-canvas-body">
@@ -50,6 +66,7 @@ export default function ChatCanvas() {
           onSend={handleSend}
           isThinking={isThinking}
           onToggleThinking={() => setIsThinking((v) => !v)}
+          chatMode={chatMode}
         />
         
         {messages.length > 0 && (
@@ -59,6 +76,7 @@ export default function ChatCanvas() {
             onSend={handleSend}
             isThinking={isThinking}
             onToggleThinking={() => setIsThinking((v) => !v)}
+            chatMode={chatMode}
           />
         )}
       </div>

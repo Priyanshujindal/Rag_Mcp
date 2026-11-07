@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   Bot,
@@ -18,8 +18,11 @@ import {
   LogOut,
   Settings,
   Layers,
+  MessageSquare,
+  Trash2,
 } from "lucide-react";
-import { getMockChatbots, getMockRecents } from "@/lib/api";
+import { getMockChatbots } from "@/lib/api";
+import { api } from "@/lib/api/client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
@@ -55,6 +58,24 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
 
   const [bots, setBots] = useState([]);
   const [recents, setRecents] = useState([]);
+  const [loadingRecents, setLoadingRecents] = useState(false);
+
+  const loadRecents = useCallback(async () => {
+    try {
+      setLoadingRecents(true);
+      const data = await api.get("/conversations?limit=30");
+      if (data && Array.isArray(data.items)) {
+        setRecents(data.items);
+      } else if (Array.isArray(data)) {
+        setRecents(data);
+      }
+    } catch (err) {
+      console.warn("Failed to load real recents:", err);
+    } finally {
+      setLoadingRecents(false);
+    }
+  }, []);
+
   useEffect(() => {
     getMockChatbots()
       .then((data) => {
@@ -62,12 +83,34 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
       })
       .catch(() => {});
 
-    getMockRecents()
-      .then((data) => {
-        if (Array.isArray(data)) setRecents(data);
-      })
-      .catch(() => {});
-  }, []);
+    loadRecents();
+
+    const handleUpdate = () => {
+      loadRecents();
+    };
+
+    window.addEventListener("rag:conversations-changed", handleUpdate);
+    return () => {
+      window.removeEventListener("rag:conversations-changed", handleUpdate);
+    };
+  }, [loadRecents]);
+
+  const handleDeleteRecent = async (e, id) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await api.delete(`/conversations/${id}`);
+      setRecents((prev) => prev.filter((item) => (item.id || item._id) !== id));
+      window.dispatchEvent(new CustomEvent("rag:conversations-changed"));
+      const searchParams = new URLSearchParams(location.search);
+      const currentId = searchParams.get("c") || searchParams.get("id");
+      if (currentId === id) {
+        window.dispatchEvent(new CustomEvent("rag:new-conversation"));
+      }
+    } catch (err) {
+      console.error("Failed to delete conversation:", err);
+    }
+  };
 
   const handleLinkClick = () => {
     onCloseMobile?.();
@@ -112,13 +155,16 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
         </div>
       </div>
 
-      {/* New Chat CTA Pill (Matches Screenshot) */}
+      {/* New Chat CTA Pill */}
       <div className="sidebar-cta">
         <Link
           to="/"
           className={`sidebar-cta-btn ${collapsed ? "centered" : ""}`}
           title="New chat"
-          onClick={handleLinkClick}
+          onClick={() => {
+            handleLinkClick();
+            window.dispatchEvent(new CustomEvent("rag:new-conversation"));
+          }}
         >
           <div className="sidebar-cta-btn-inner">
             <SquarePen size={15} />
@@ -187,22 +233,46 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
           </div>
         )}
 
-        {/* Recents (Matches Screenshot) */}
+        {/* Recents (Real Conversations from MongoDB) */}
         {!collapsed && (
           <div>
             <div className="sidebar-section-label">Recents</div>
             <div className="sidebar-nav">
-              {recents.map((item) => (
-                <Link
-                  key={item.id}
-                  to={`/?id=${item.id}`}
-                  className="sidebar-recent-link"
-                  title={item.title}
-                  onClick={handleLinkClick}
-                >
-                  <span>{item.title}</span>
-                </Link>
-              ))}
+              {loadingRecents && recents.length === 0 ? (
+                <div className="sidebar-empty-recents">Loading chats...</div>
+              ) : recents.length === 0 ? (
+                <div className="sidebar-empty-recents">No recent chats</div>
+              ) : (
+                recents.map((item) => {
+                  const itemId = item.id || item._id;
+                  const searchParams = new URLSearchParams(location.search);
+                  const currentId = searchParams.get("c") || searchParams.get("id");
+                  const isActive = (location.pathname === "/" || location.pathname === "/chat") && currentId === itemId;
+                  return (
+                    <Link
+                      key={itemId}
+                      to={`/?c=${itemId}`}
+                      className={`sidebar-recent-link ${isActive ? "active" : ""}`}
+                      title={item.title || "Untitled Conversation"}
+                      onClick={handleLinkClick}
+                    >
+                      <MessageSquare size={13} className="sidebar-recent-icon" />
+                      <span className="truncate-flex">
+                        {item.title || "Untitled Conversation"}
+                      </span>
+                      <button
+                        type="button"
+                        className="sidebar-recent-delete-btn"
+                        title="Delete conversation"
+                        aria-label="Delete conversation"
+                        onClick={(e) => handleDeleteRecent(e, itemId)}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </Link>
+                  );
+                })
+              )}
             </div>
           </div>
         )}

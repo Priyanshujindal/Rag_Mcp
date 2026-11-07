@@ -16,7 +16,8 @@ from app.rag.prompt_builder import ChatMessage
 class ChatRequest(BaseModel):
     """Payload for POST /chat (SSE)."""
 
-    knowledgeBaseId: str = Field(..., description="Knowledge base 24-hex ObjectId")
+    knowledgeBaseId: Optional[str] = Field(default=None, description="Optional Knowledge base 24-hex ObjectId for RAG")
+    mode: Literal["rag", "general"] = Field(default="rag", description="Chat mode: 'rag' or 'general'")
     message: str = Field(..., min_length=1, max_length=4000, description="Latest user message")
     conversationId: Optional[str] = Field(default=None, description="Optional conversation tracking ID")
     history: List[ChatMessage] = Field(default_factory=list, description="Prior conversation turns")
@@ -33,7 +34,9 @@ class ChatRequest(BaseModel):
 
     @field_validator("knowledgeBaseId")
     @classmethod
-    def validate_kb_id(cls, v: str) -> str:
+    def validate_kb_id(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
         if not ObjectId.is_valid(v):
             raise ValueError("knowledgeBaseId must be a valid 24-character hex ObjectId")
         return v
@@ -47,4 +50,18 @@ class ChatRequest(BaseModel):
             if not ObjectId.is_valid(s):
                 raise ValueError(f"Each sourceId must be a valid 24-hex ObjectId; got: {s!r}")
         return v
+
+
+class TitleRequest(BaseModel):
+    """Payload for POST /generate-title."""
+
+    message: str = Field(..., min_length=1, max_length=4000, description="User prompt to generate title from")
+    model: Optional[str] = Field(default="gemini-3.8-flash", description="Requested LLM model name")
+
+
+class TitleResponse(BaseModel):
+    """Response from POST /generate-title."""
+
+    title: str = Field(..., description="Generated concise conversation title")
+
 

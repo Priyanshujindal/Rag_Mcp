@@ -49,7 +49,11 @@ export function setAccessToken(token) {
 
 export function getActiveWorkspaceId() {
   try {
-    return localStorage.getItem("ragmcp_active_workspace_id") || null;
+    const id = localStorage.getItem("ragmcp_active_workspace_id");
+    if (!id || id === "null" || id === "undefined" || id === "anon") {
+      return null;
+    }
+    return id;
   } catch {
     return null;
   }
@@ -57,7 +61,7 @@ export function getActiveWorkspaceId() {
 
 export function setActiveWorkspaceId(id) {
   try {
-    if (id) {
+    if (id && id !== "null" && id !== "undefined" && id !== "anon") {
       localStorage.setItem("ragmcp_active_workspace_id", id);
     } else {
       localStorage.removeItem("ragmcp_active_workspace_id");

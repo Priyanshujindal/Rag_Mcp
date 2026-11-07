@@ -15,7 +15,12 @@ export async function tenantGuard(req, _res, next) {
     const customWorkspaceId = req.headers["x-workspace-id"];
     let targetWorkspaceId = null;
 
-    if (customWorkspaceId) {
+    if (
+      customWorkspaceId &&
+      customWorkspaceId !== "null" &&
+      customWorkspaceId !== "undefined" &&
+      customWorkspaceId.trim() !== ""
+    ) {
       if (!mongoose.Types.ObjectId.isValid(customWorkspaceId)) {
         return next(AppError.notFound("Workspace not found"));
       }

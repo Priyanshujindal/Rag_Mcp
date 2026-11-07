@@ -260,6 +260,15 @@ export async function loginUser({ email, password }) {
   if (data.accessToken) {
     setAccessToken(data.accessToken);
   }
+  try {
+    const me = await api.get("/auth/me");
+    const activeWs = me?.workspaces?.[0]?.workspace;
+    if (activeWs?.id || activeWs?._id) {
+      setActiveWorkspaceId(activeWs.id || activeWs._id);
+    }
+  } catch {
+    // Non-critical: backend tenantGuard will still resolve workspace
+  }
   return data;
 }
 
