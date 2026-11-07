@@ -94,6 +94,8 @@ export default function ChatCanvas() {
     handleRegenerate,
     handleCopy,
     handleVoiceNotice,
+    handleApproveTool,
+    handleRejectTool,
     knowledgeBaseId,
     setKnowledgeBaseId,
     chatMode,
@@ -198,6 +200,8 @@ export default function ChatCanvas() {
             voiceLangLabel={voiceLangLabel}
             onToggleVoiceLang={toggleVoiceLang}
             onToggleListening={() => toggleListening(input)}
+            onApproveTool={handleApproveTool}
+            onRejectTool={handleRejectTool}
             onAction={(action) => {
               if (action === "request_mic") {
                 toggleListening(input);

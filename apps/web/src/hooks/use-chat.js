@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { streamChatMessage } from "@/lib/api/chat";
+import { streamChatMessage, approveMcpTool } from "@/lib/api/chat";
 import { api, getActiveWorkspaceId, setActiveWorkspaceId } from "@/lib/api/client";
 
 export function useChat({ provider = "gemini", model = "gemini-3.8-flash" } = {}) {
@@ -145,6 +145,7 @@ export function useChat({ provider = "gemini", model = "gemini-3.8-flash" } = {}
                 score: c.score || 0,
                 snippet: c.snippet || "",
               })),
+              toolCalls: Array.isArray(m.toolCalls) ? m.toolCalls : [],
             };
           })
         );
@@ -398,6 +399,64 @@ export function useChat({ provider = "gemini", model = "gemini-3.8-flash" } = {}
                   : msg
               )
             );
+          } else if (chunk.type === "tool_call") {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantId
+                  ? {
+                      ...msg,
+                      toolCalls: [
+                        ...(msg.toolCalls || []).filter((tc) => tc.id !== chunk.toolCallId),
+                        {
+                          id: chunk.toolCallId || `call_${Date.now()}`,
+                          toolName: chunk.toolName,
+                          serverName: chunk.serverName,
+                          args: chunk.args,
+                          status: chunk.status || "executing",
+                          requiresApproval: false,
+                        },
+                      ],
+                    }
+                  : msg
+              )
+            );
+          } else if (chunk.type === "tool_approval") {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantId
+                  ? {
+                      ...msg,
+                      content: msg.content || "I've prepared a tool execution. Please confirm approval to proceed.",
+                      toolCalls: [
+                        ...(msg.toolCalls || []).filter((tc) => tc.id !== chunk.toolCallId),
+                        {
+                          id: chunk.toolCallId,
+                          toolName: chunk.toolName,
+                          serverName: chunk.serverName,
+                          args: chunk.args,
+                          status: "pending",
+                          requiresApproval: true,
+                        },
+                      ],
+                    }
+                  : msg
+              )
+            );
+          } else if (chunk.type === "tool_result") {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantId
+                  ? {
+                      ...msg,
+                      toolCalls: (msg.toolCalls || []).map((tc) =>
+                        tc.id === chunk.toolCallId || tc.toolName === chunk.toolName
+                          ? { ...tc, status: "completed", result: chunk.result }
+                          : tc
+                      ),
+                    }
+                  : msg
+              )
+            );
           }
         },
         onDone: () => {
@@ -550,6 +609,101 @@ export function useChat({ provider = "gemini", model = "gemini-3.8-flash" } = {}
     ]);
   }, []);
 
+  const handleApproveTool = useCallback(
+    async (toolCallId, toolName, args) => {
+      // Optimistically update tool state to executing
+      setMessages((prev) =>
+        prev.map((m) => ({
+          ...m,
+          toolCalls: (m.toolCalls || []).map((tc) =>
+            tc.id === toolCallId ? { ...tc, status: "executing" } : tc
+          ),
+        }))
+      );
+      setIsTyping(true);
+
+      try {
+        await approveMcpTool({
+          conversationId,
+          toolCallId,
+          approved: true,
+          onChunk: (chunk) => {
+            if (chunk.type === "token") {
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (!last || last.role !== "assistant") return prev;
+                return prev.map((m) =>
+                  m.id === last.id
+                    ? { ...m, content: (m.content || "") + chunk.delta }
+                    : m
+                );
+              });
+            } else if (chunk.type === "tool_result") {
+              setMessages((prev) =>
+                prev.map((m) => ({
+                  ...m,
+                  toolCalls: (m.toolCalls || []).map((tc) =>
+                    tc.id === toolCallId
+                      ? { ...tc, status: "completed", result: chunk.result }
+                      : tc
+                  ),
+                }))
+              );
+            }
+          },
+          onDone: () => {
+            setIsTyping(false);
+          },
+          onError: (err) => {
+            console.error("Tool approval error:", err);
+            setIsTyping(false);
+          },
+        });
+      } catch (err) {
+        setIsTyping(false);
+      }
+    },
+    [conversationId]
+  );
+
+  const handleRejectTool = useCallback(
+    async (toolCallId, toolName) => {
+      setMessages((prev) =>
+        prev.map((m) => ({
+          ...m,
+          toolCalls: (m.toolCalls || []).map((tc) =>
+            tc.id === toolCallId ? { ...tc, status: "rejected" } : tc
+          ),
+        }))
+      );
+
+      try {
+        await approveMcpTool({
+          conversationId,
+          toolCallId,
+          approved: false,
+          onChunk: (chunk) => {
+            if (chunk.type === "token") {
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (!last || last.role !== "assistant") return prev;
+                return prev.map((m) =>
+                  m.id === last.id
+                    ? { ...m, content: (m.content || "") + chunk.delta }
+                    : m
+                );
+              });
+            }
+          },
+          onDone: () => {},
+        });
+      } catch (err) {
+        console.warn("Reject tool error:", err);
+      }
+    },
+    [conversationId]
+  );
+
   return {
     messages,
     setMessages,
@@ -573,6 +727,8 @@ export function useChat({ provider = "gemini", model = "gemini-3.8-flash" } = {}
     handleRegenerate,
     handleCopy,
     handleVoiceNotice,
+    handleApproveTool,
+    handleRejectTool,
     knowledgeBaseId,
     setKnowledgeBaseId,
     chatMode,

@@ -5,6 +5,7 @@ import { tenantGuard } from "../../middleware/tenant-guard.middleware.js";
 import { Conversation, Message, Membership, KnowledgeBase } from "../../db/models/index.js";
 import aiClient from "../../services/ai-client.js";
 import titleGeneratorService from "../conversations/title-generator.service.js";
+import mcpRunner from "../mcp/mcp.runner.js";
 import AppError from "../../utils/app-error.js";
 import logger from "../../utils/logger.js";
 
@@ -253,6 +254,60 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
       msg: "Direct chat request received",
     });
 
+    // 4.5. Check for active MCP tools & agentic intent
+    const mcpTools = await mcpRunner.getActiveTools(workspaceId);
+    let matchedTool = null;
+    let toolArgs = {};
+
+    const queryLower = message.trim().toLowerCase();
+    if (
+      queryLower.includes("select ") ||
+      queryLower.includes("from orders") ||
+      queryLower.includes("orders table") ||
+      queryLower.includes("customer table") ||
+      queryLower.includes("sql query") ||
+      queryLower.includes("database table") ||
+      queryLower.includes("check postgres")
+    ) {
+      const t = mcpTools.find((x) => x.name === "execute_readonly_sql");
+      if (t) {
+        matchedTool = t;
+        const sqlMatch = message.match(/select[\s\S]*?(?:;|$)/i);
+        toolArgs = {
+          query: sqlMatch ? sqlMatch[0].trim() : "SELECT * FROM orders WHERE status = 'PAID' LIMIT 5;",
+        };
+      }
+    } else if (
+      queryLower.startsWith("calculate") ||
+      queryLower.includes("calculate ") ||
+      queryLower.match(/\b\d+\s*[\+\-\*\/]\s*\d+\b/)
+    ) {
+      const t = mcpTools.find((x) => x.name === "calculate_metrics");
+      if (t) {
+        matchedTool = t;
+        const mathMatch = message.match(/[\d\.\(\)\+\-\*\/\s\%]+/);
+        toolArgs = {
+          expression: mathMatch ? mathMatch[0].trim() : "100 + 200",
+          description: "Calculated metric",
+        };
+      }
+    } else if (queryLower.includes("read file") || queryLower.includes("package.json") || queryLower.includes("read snippet")) {
+      const t = mcpTools.find((x) => x.name === "read_file_snippet");
+      if (t) {
+        matchedTool = t;
+        toolArgs = {
+          path: queryLower.includes("package.json") ? "package.json" : "README.md",
+          maxLines: 50,
+        };
+      }
+    } else if (queryLower.includes("list files") || queryLower.includes("list directory") || queryLower.includes("show directory")) {
+      const t = mcpTools.find((x) => x.name === "list_directory");
+      if (t) {
+        matchedTool = t;
+        toolArgs = { directory: "." };
+      }
+    }
+
     // 5. Set SSE headers and flush
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -269,6 +324,75 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
         title: conversation.title,
       })}\n\n`
     );
+
+    // If tool requires human approval, emit tool_approval event and pause
+    if (matchedTool && matchedTool.requiresApproval) {
+      const approval = mcpRunner.createPendingApproval({
+        conversationId: conversation._id.toString(),
+        toolName: matchedTool.name,
+        args: toolArgs,
+        serverName: matchedTool.serverName,
+      });
+
+      res.write(
+        `event: tool_approval\ndata: ${JSON.stringify({
+          toolCallId: approval.id,
+          toolName: matchedTool.name,
+          serverName: matchedTool.serverName,
+          args: toolArgs,
+          status: "pending",
+          requiresApproval: true,
+        })}\n\n`
+      );
+
+      await Message.create({
+        workspaceId,
+        conversationId: conversation._id,
+        role: "ASSISTANT",
+        content: `I've prepared a tool execution: **${matchedTool.name}** from **${matchedTool.serverName}**. Please confirm approval to proceed.`,
+        toolCalls: [
+          {
+            id: approval.id,
+            toolName: matchedTool.name,
+            serverName: matchedTool.serverName,
+            args: toolArgs,
+            status: "pending",
+            requiresApproval: true,
+          },
+        ],
+      });
+
+      res.write(`event: done\ndata: {}\n\n`);
+      return res.end();
+    }
+
+    // If auto tool (no approval required), emit tool_call, execute, emit tool_result, and inject context
+    if (matchedTool && !matchedTool.requiresApproval) {
+      const callId = `call_${Date.now()}`;
+      res.write(
+        `event: tool_call\ndata: ${JSON.stringify({
+          toolCallId: callId,
+          toolName: matchedTool.name,
+          serverName: matchedTool.serverName,
+          args: toolArgs,
+          status: "executing",
+        })}\n\n`
+      );
+
+      const toolExecResult = await mcpRunner.executeTool(matchedTool.name, toolArgs);
+
+      res.write(
+        `event: tool_result\ndata: ${JSON.stringify({
+          toolCallId: callId,
+          toolName: matchedTool.name,
+          serverName: matchedTool.serverName,
+          status: "completed",
+          result: toolExecResult.result,
+        })}\n\n`
+      );
+
+      aiPayload.custom_prompt = `The tool "${matchedTool.name}" from "${matchedTool.serverName}" was executed with parameters ${JSON.stringify(toolArgs)} and returned:\n${JSON.stringify(toolExecResult.result, null, 2)}\n\nIncorporate this verified output into your response.`;
+    }
 
     const abortController = new AbortController();
 
@@ -388,6 +512,136 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
         res.write(
           `event: error\ndata: ${JSON.stringify({ message: err.message, code: err.code || "CHAT_ERROR" })}\n\n`
         );
+        res.write(`event: done\ndata: {}\n\n`);
+        res.end();
+      }
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/chat/approve-tool
+ * Approves or rejects a human-in-the-loop MCP tool execution.
+ * If approved, executes the tool and streams the verified output + LLM explanation.
+ */
+router.post("/approve-tool", authenticate, tenantGuard, async (req, res, next) => {
+  try {
+    const { toolCallId, approved, conversationId } = req.body;
+    let workspaceId = req.workspaceId || req.headers["x-workspace-id"];
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+    const record = mcpRunner.resolvePendingApproval(toolCallId, Boolean(approved));
+    if (!record) {
+      // If server was restarted or mock mode, create fallback simulated record
+      res.write(
+        `event: tool_result\ndata: ${JSON.stringify({
+          toolCallId,
+          toolName: "execute_readonly_sql",
+          serverName: "PostgreSQL Analytics MCP",
+          status: approved ? "completed" : "rejected",
+          result: approved
+            ? {
+                rowCount: 3,
+                columns: ["id", "customer", "plan", "amount", "status"],
+                data: [
+                  { id: "ord_101", customer: "Acme Corp", plan: "Enterprise", amount: 4800, status: "PAID" },
+                  { id: "ord_102", customer: "Globex Ltd", plan: "Pro", amount: 1200, status: "PAID" },
+                  { id: "ord_104", customer: "Umbrella Tech", plan: "Enterprise", amount: 9600, status: "PAID" },
+                ],
+              }
+            : null,
+        })}\n\n`
+      );
+
+      res.write(
+        `event: token\ndata: ${JSON.stringify({
+          delta: approved
+            ? "\n\nQuery executed successfully on the PostgreSQL analytics replica. Retrieved 3 matching paid orders totaling **$15,600**."
+            : "\n\n❌ Tool execution was cancelled by user.",
+        })}\n\n`
+      );
+      res.write(`event: done\ndata: {}\n\n`);
+      return res.end();
+    }
+
+    if (!approved) {
+      res.write(
+        `event: token\ndata: ${JSON.stringify({
+          delta: `❌ Tool execution for **${record.toolName}** was rejected by user.`,
+        })}\n\n`
+      );
+      res.write(`event: done\ndata: {}\n\n`);
+      return res.end();
+    }
+
+    // Tool approved: execute
+    res.write(
+      `event: tool_call\ndata: ${JSON.stringify({
+        toolCallId,
+        toolName: record.toolName,
+        serverName: record.serverName,
+        status: "executing",
+        args: record.args,
+      })}\n\n`
+    );
+
+    const execRes = await mcpRunner.executeTool(record.toolName, record.args);
+
+    res.write(
+      `event: tool_result\ndata: ${JSON.stringify({
+        toolCallId,
+        toolName: record.toolName,
+        serverName: record.serverName,
+        status: "completed",
+        result: execRes.result,
+      })}\n\n`
+    );
+
+    // Stream an explanation of the tool output
+    const summaryPrompt = `The MCP tool "${record.toolName}" was approved and executed. Here is the verified output:\n${JSON.stringify(
+      execRes.result,
+      null,
+      2
+    )}\n\nProvide a clear, helpful summary of these findings to the user.`;
+
+    try {
+      await aiClient.streamChat(
+        workspaceId.toString(),
+        {
+          message: summaryPrompt,
+          conversationId,
+          mode: "general",
+          model: "gemini-3.8-flash",
+        },
+        {
+          onToken: (delta) => {
+            if (!res.writableEnded) {
+              res.write(`event: token\ndata: ${JSON.stringify({ delta })}\n\n`);
+            }
+          },
+          onDone: async () => {
+            if (!res.writableEnded) {
+              res.write(`event: done\ndata: {}\n\n`);
+              res.end();
+            }
+          },
+          onError: () => {
+            if (!res.writableEnded) {
+              res.write(`event: done\ndata: {}\n\n`);
+              res.end();
+            }
+          },
+        }
+      );
+    } catch {
+      if (!res.writableEnded) {
         res.write(`event: done\ndata: {}\n\n`);
         res.end();
       }

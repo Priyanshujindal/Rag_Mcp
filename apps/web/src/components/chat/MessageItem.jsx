@@ -4,6 +4,7 @@ import { CitationList } from "./CitationList";
 import { MessageActions } from "./MessageActions";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { ThinkingAccordion } from "./ThinkingAccordion";
+import { McpToolCallCard } from "./McpToolCallCard";
 
 /**
  * Individual chat message row supporting both user and assistant roles.
@@ -31,6 +32,9 @@ export function MessageItem({
   onRegenerate,
   onAction,
   onInspectDoc,
+  onApproveTool,
+  onRejectTool,
+  isStreaming = false,
   isListening = false,
 }) {
   const isUser = message.role === "user";
@@ -158,6 +162,21 @@ export function MessageItem({
             reasoning={message.reasoning}
             isStreaming={!message.content}
           />
+        )}
+
+        {/* MCP Agentic Tool Calls & Human-in-the-Loop Approvals */}
+        {message.toolCalls && message.toolCalls.length > 0 && (
+          <div className="chat-msg-tool-calls">
+            {message.toolCalls.map((tc, idx) => (
+              <McpToolCallCard
+                key={tc.id || idx}
+                toolCall={tc}
+                onApprove={onApproveTool}
+                onReject={onRejectTool}
+                isStreaming={isStreaming}
+              />
+            ))}
+          </div>
         )}
 
         <div className="chat-msg-text">

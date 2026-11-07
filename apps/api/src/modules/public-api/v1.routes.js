@@ -6,6 +6,18 @@ import publicChatController from "./chat.public.controller.js";
 
 const router = Router();
 
+// Permissive CORS for public widget endpoints
+router.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Request-Id");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 const publicChatLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
@@ -35,7 +47,17 @@ const publicIdParamsSchema = z
   })
   .strict();
 
-// Public widget chat endpoints
+// 1. Serve Standalone Widget Script
+router.get("/widget.js", publicChatController.serveWidgetScript);
+
+// 2. Public Chatbot Configuration
+router.get(
+  "/chatbots/:publicId/config",
+  validate({ params: publicIdParamsSchema }),
+  publicChatController.getConfig
+);
+
+// 3. Public widget chat endpoints
 router.post(
   "/chatbots/:publicId/chat",
   publicChatLimiter,

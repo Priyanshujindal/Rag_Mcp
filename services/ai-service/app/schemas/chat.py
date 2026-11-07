@@ -28,6 +28,7 @@ class ChatRequest(BaseModel):
     is_thinking: bool = Field(default=False, alias="isThinking", description="Enable deeper reasoning / thinking process")
     attached_document: Optional[dict] = Field(default=None, alias="attachedDocument", description="Direct ad-hoc document context { name, content, type, size }")
     attached_documents: Optional[List[dict]] = Field(default=None, alias="attachedDocuments", description="Multiple ad-hoc documents [{ name, content, type, size }]")
+    tools: Optional[List[dict]] = Field(default=None, description="Available MCP tools for agentic function calling")
     custom_prompt: Optional[str] = Field(default=None, description="Custom bot persona/instructions")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1, le=8192)

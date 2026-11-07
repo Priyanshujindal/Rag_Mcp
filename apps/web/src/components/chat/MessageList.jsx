@@ -4,10 +4,10 @@ import { MessageItem } from "./MessageItem";
 import { parseDocumentFile, parseDocumentFiles } from "@/lib/api/chat";
 
 const STARTER_PROMPTS = [
+  "Run SQL query to check active orders in PostgreSQL replica",
+  "Calculate revenue difference between 125,000 and 84,200",
+  "Inspect package.json dependencies and scripts",
   "Summarize our latest release notes and key changes",
-  "Write an integration script for our Node.js SDK",
-  "What are our API rate limits and tier quotas?",
-  "How do I set up webhooks with HMAC signatures?",
 ];
 
 export function MessageList({ 
@@ -40,6 +40,8 @@ export function MessageList({
   onToggleVoiceLang,
   onToggleListening,
   onAction,
+  onApproveTool,
+  onRejectTool,
 }) {
   const fileInputRef = useRef(null);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
@@ -294,6 +296,9 @@ export function MessageList({
             onRegenerate={onRegenerate}
             onAction={onAction}
             onInspectDoc={onInspectDoc}
+            onApproveTool={onApproveTool}
+            onRejectTool={onRejectTool}
+            isStreaming={isTyping}
             isListening={isListening}
           />
         ))}

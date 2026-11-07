@@ -59,6 +59,17 @@ const messageSchema = new mongoose.Schema(
       type: [citationSchema],
       default: [],
     },
+    toolCalls: [
+      {
+        id: { type: String },
+        toolName: { type: String },
+        serverName: { type: String },
+        args: { type: mongoose.Schema.Types.Mixed },
+        status: { type: String, enum: ["pending", "executing", "completed", "rejected"], default: "pending" },
+        requiresApproval: { type: Boolean, default: false },
+        result: { type: mongoose.Schema.Types.Mixed },
+      },
+    ],
     tokenUsage: {
       promptTokens: { type: Number, default: 0 },
       completionTokens: { type: Number, default: 0 },

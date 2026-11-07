@@ -116,10 +116,17 @@ export default function CreateChatbotWizard() {
     }
   }, [step]);
 
+  const apiHost =
+    import.meta.env.VITE_API_BASE_URL ||
+    (typeof window !== "undefined"
+      ? window.location.origin.replace(":5173", ":8000").replace(":3000", ":8000")
+      : "http://localhost:8000");
+
   const embedScript = `<!-- Rag_Mcp Web Chatbot Embed -->
 <script
-  src="http://localhost:5174/widget.js"
+  src="${apiHost}/api/v1/public/widget.js"
   data-bot-id="${createdBotPublicId}"
+  data-api-host="${apiHost}"
   data-color="#6366f1"
   defer>
 </script>`;

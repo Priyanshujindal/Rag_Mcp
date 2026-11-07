@@ -90,10 +90,17 @@ export default function ChatbotDetailPage() {
     kbs[0] ||
     mockKnowledgeBases[0];
 
+  const apiHost =
+    import.meta.env.VITE_API_BASE_URL ||
+    (typeof window !== "undefined"
+      ? window.location.origin.replace(":5173", ":8000").replace(":3000", ":8000")
+      : "http://localhost:8000");
+
   const embedScript = `<!-- Rag_Mcp Web Chatbot Embed -->
 <script
-  src="https://cdn.ragmcp.dev/widget.js"
+  src="${apiHost}/api/v1/public/widget.js"
   data-bot-id="${bot.publicId || bot.id}"
+  data-api-host="${apiHost}"
   data-color="${themeConfig.primaryColor}"
   data-position="${themeConfig.position}"
   defer>
@@ -176,7 +183,7 @@ export default function ChatbotDetailPage() {
       {activeTab === "sources" && <SourcesTab linkedKb={linkedKb} />}
       {activeTab === "analytics" && <AnalyticsTab />}
       {activeTab === "embed" && (
-        <EmbedTab bot={bot} themeConfig={themeConfig} embedScript={embedScript} />
+        <EmbedTab bot={bot} themeConfig={themeConfig} embedScript={embedScript} apiHost={apiHost} />
       )}
       {activeTab === "settings" && <SettingsTab bot={bot} />}
     </div>
