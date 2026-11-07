@@ -1,0 +1,64 @@
+{
+  "_comment": "NOTE: All tenants/workspaces share these two Search indexes on the 'chunks' collection (never create one index per workspace, as free MongoDB Atlas clusters strictly limit search indexes). Tenant isolation is strictly enforced at query time by always including the 'workspaceId' filter inside the search pipeline stage ($vectorSearch or $search). The chunks collection itself is owned and populated by the Python ai-service. Standard B-tree indexes on chunks include idx_workspace_kb_source, idx_source_ingestion, and idx_source_ingestion_contenthash_unique on (sourceId, ingestionId, contentHash). The unique index includes ingestionId to support safe two-phase re-indexing (re-index inserts new chunks before deleting old ones without duplicate key conflicts; legacy idx_source_contenthash_unique is dropped by python -m app.rag.indexes --ensure).",
+  "indexes": [
+    {
+      "name": "chunks_vector",
+      "type": "vectorSearch",
+      "definition": {
+        "fields": [
+          {
+            "type": "vector",
+            "path": "embedding",
+            "numDimensions": 384,
+            "similarity": "cosine"
+          },
+          {
+            "type": "filter",
+            "path": "workspaceId"
+          },
+          {
+            "type": "filter",
+            "path": "knowledgeBaseId"
+          },
+          {
+            "type": "filter",
+            "path": "sourceId"
+          }
+        ]
+      }
+    },
+    {
+      "name": "chunks_text",
+      "type": "search",
+      "definition": {
+        "mappings": {
+          "dynamic": false,
+          "fields": {
+            "text": {
+              "type": "string",
+              "analyzer": "lucene.standard"
+            },
+            "metadata": {
+              "type": "document",
+              "fields": {
+                "title": {
+                  "type": "string",
+                  "analyzer": "lucene.standard"
+                }
+              }
+            },
+            "workspaceId": {
+              "type": "objectId"
+            },
+            "knowledgeBaseId": {
+              "type": "objectId"
+            },
+            "sourceId": {
+              "type": "objectId"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

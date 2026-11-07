@@ -1,0 +1,74 @@
+/* ============================================================
+   RAG EVALS PAGE STYLES
+   ============================================================ */
+
+.eval-score-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.eval-score-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  text-align: center;
+}
+
+.eval-score-val {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--score-color, var(--text-primary));
+  line-height: 1.1;
+}
+
+.eval-score-pct {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.eval-score-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+
+.score-bar-fill {
+  width: var(--pct, 0%);
+  background: var(--score-color, var(--accent));
+}
+
+.eval-suite-cell {
+  font-weight: 500;
+  max-width: 260px;
+}
+
+.eval-suite-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.eval-model-code {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(120, 120, 120, 0.1);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+}
+
+.eval-samples-cell {
+  font-size: 12px;
+}
+
+.eval-score-col {
+  min-width: 110px;
+}
+

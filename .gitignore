@@ -1,0 +1,133 @@
+# ============================================================
+# Rag_Mcp Root .gitignore
+# Covers Node.js/Vite/Next, Python/FastAPI, Vector Stores & OS
+# ============================================================
+
+# ── Dependencies ──
+node_modules/
+.pnpm-store/
+jspm_packages/
+
+# ── Python / AI Service ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+!apps/web/src/lib/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Python virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python testing & typing
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ── Build & Cache Outputs ──
+dist/
+dist-ssr/
+build/
+out/
+.next/
+.nuxt/
+.vuepress/dist
+.cache/
+.parcel-cache/
+.turbo/
+*.tsbuildinfo
+
+# ── Environment & Secrets (NEVER commit secrets) ──
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+*.pem
+*.key
+*.cert
+secrets/
+
+# ── Logs & Debugging ──
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── Database & Persistent Storage ──
+storage/
+*.sqlite
+*.sqlite3
+*.db
+pgdata/
+chroma_db/
+qdrant_storage/
+vector_indices/
+*.duckdb
+
+# ── Crawler & Playwright Caches ──
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+crawl_cache/
+downloads/
+
+# ── Operating System & Editor Files ──
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+
+# IDEs & Editors
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.sublime-workspace
+*.sublime-project
+*.swp
+*.swo
+
+# ── Temporary & Scratch Files ──
+tmp/
+temp/
+*.tmp
+*.bak
+

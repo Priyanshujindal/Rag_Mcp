@@ -1,0 +1,24 @@
+[
+  {
+    "id": "qa-001",
+    "question": "What is the primary function of chlorophyll in photosynthesis?",
+    "ground_truth_answer": "Chlorophyll absorbs sunlight/solar radiation to convert carbon dioxide and water into glucose and oxygen.",
+    "expected_keywords": ["chlorophyll", "sunlight", "solar", "photosynthesis", "glucose"],
+    "expected_title": "Photosynthesis"
+  },
+  {
+    "id": "qa-002",
+    "question": "How are customer refund requests handled?",
+    "ground_truth_answer": "Refund requests are processed within 5 business days back to the original payment method upon return confirmation.",
+    "expected_keywords": ["refund", "business days", "payment method", "return"],
+    "expected_title": "Refund Policy"
+  },
+  {
+    "id": "qa-003",
+    "question": "What authentication header is required for internal service calls?",
+    "ground_truth_answer": "The X-Internal-Key header matching the shared secret is required for all internal API requests.",
+    "expected_keywords": ["X-Internal-Key", "internal", "header", "secret", "authentication"],
+    "expected_title": "Security Architecture"
+  }
+]
+

@@ -1,0 +1,19 @@
+{
+  "name": "rag-mcp-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm --filter @rag-mcp/web dev",
+    "dev:web": "pnpm --filter @rag-mcp/web dev",
+    "dev:api": "pnpm --filter @rag-mcp/api dev",
+    "dev:all": "pnpm --parallel --filter @rag-mcp/api --filter @rag-mcp/web dev",
+    "build": "pnpm --filter @rag-mcp/web build",
+    "preview": "pnpm --filter @rag-mcp/web preview",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm --filter @rag-mcp/api test"
+  }
+}
