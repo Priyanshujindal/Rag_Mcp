@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rag_Mcp Chat Widget Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 40px 20px;
+      background: #0f172a;
+      color: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 640px;
+      width: 100%;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 24px;
+      color: #38bdf8;
+    }
+    p {
+      line-height: 1.6;
+      color: #94a3b8;
+      font-size: 14px;
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+    .form-group {
+      margin: 20px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+    .input-row {
+      display: flex;
+      gap: 10px;
+    }
+    input {
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #f8fafc;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus {
+      border-color: #38bdf8;
+    }
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    button {
+      background: #0284c7;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    button:hover {
+      background: #0369a1;
+    }
+    button.secondary {
+      background: #334155;
+    }
+    button.secondary:hover {
+      background: #475569;
+    }
+    .hint-box {
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      border-radius: 8px;
+      font-size: 13px;
+      color: #93c5fd;
+      line-height: 1.5;
+    }
+    .status-text {
+      font-size: 12px;
+      color: #22c55e;
+      font-weight: 500;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">Standalone Customer Website Demo</span>
+    <h1>Rag_Mcp Widget Embed Test</h1>
+    <p>
+      Test your chatbot widget on an external webpage. Look at the <strong>bottom-right corner</strong> of your screen to see the floating widget bubble.
+    </p>
+
+    <!-- Interactive Bot ID Connector -->
+    <div class="form-group">
+      <label for="botIdInput">Chatbot Public ID</label>
+      <div class="input-row">
+        <input
+          id="botIdInput"
+          type="text"
+          placeholder="e.g. bot_demo or paste your chatbot publicId"
+          value="bot_demo"
+        />
+        <button type="button" onclick="connectBot()">Connect Bot</button>
+      </div>
+      <div id="statusMessage" class="status-text">Ready. Connected with ID: bot_demo</div>
+    </div>
+
+    <div class="btn-group">
+      <button onclick="RagMcpWidget.open()">Open Chat Window</button>
+      <button class="secondary" onclick="RagMcpWidget.close()">Close Chat Window</button>
+      <button class="secondary" onclick="RagMcpWidget.toggle()">Toggle Widget</button>
+    </div>
+
+    <div class="hint-box">
+      💡 <strong>How to find your bot's Public ID:</strong><br />
+      1. Open the dashboard at <code>http://localhost:5173</code>.<br />
+      2. Click <strong>Chatbots</strong> in the sidebar & select your bot.<br />
+      3. Click the <strong>Embed</strong> tab — copy the <code>data-bot-id="..."</code> value.<br />
+      4. Paste it into the input box above and click <strong>Connect Bot</strong>!
+    </div>
+  </div>
+
+  <!-- Rag_Mcp Standalone Chatbot Widget Script -->
+  <script src="./packages/widget/dist/widget.js" defer></script>
+  <script>
+    window.addEventListener("DOMContentLoaded", function () {
+      initWidget("bot_demo");
+    });
+
+    function initWidget(botId) {
+      if (window.RagMcpWidget) {
+        window.RagMcpWidget.init({
+          botId: botId || "bot_demo",
+          apiHost: "http://localhost:8000",
+          primaryColor: "#0284c7",
+          position: "bottom-right",
+          welcomeMessage: "Hello! 👋 I am your Rag_Mcp assistant. Ask me anything!",
+          suggestedQuestions: [
+            "What knowledge base is connected?",
+            "Summarize the latest document",
+            "What can you help me with?"
+          ]
+        });
+      }
+    }
+
+    function connectBot() {
+      const input = document.getElementById("botIdInput");
+      const val = input.value.trim() || "bot_demo";
+      initWidget(val);
+      const status = document.getElementById("statusMessage");
+      status.textContent = `Connected with ID: "${val}". Opening chat...`;
+      setTimeout(() => {
+        if (window.RagMcpWidget) window.RagMcpWidget.open();
+      }, 200);
+    }
+  </script>
+</body>
+</html>
