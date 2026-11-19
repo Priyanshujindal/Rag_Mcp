@@ -1,0 +1,74 @@
+/* ============================================================
+   USAGE PAGE STYLES
+   ============================================================ */
+
+.usage-date-range {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.usage-metric-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.usage-metric-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  background: var(--metric-bg, var(--accent-dim));
+  color: var(--metric-color, var(--accent));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.usage-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.bar-fill {
+  height: var(--bar-height, 0%);
+  background: var(--bar-color, var(--accent));
+}
+
+.usage-limits-card {
+  margin-top: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.usage-limits-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.usage-limit-item {
+  margin-bottom: 16px;
+}
+
+.usage-limit-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+}
+
+.usage-limit-mono {
+  font-family: var(--font-mono);
+}
+
+.usage-progress-fill {
+  width: var(--pct, 0%);
+  background: var(--fill-color, var(--accent));
+}
+

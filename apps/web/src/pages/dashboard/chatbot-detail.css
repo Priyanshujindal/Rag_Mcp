@@ -1,0 +1,265 @@
+/* ============================================================
+   CHATBOT DETAIL STYLES
+   ============================================================ */
+
+.bot-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.bot-detail-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bot-detail-header-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background-color: var(--bot-bg, var(--accent-dim));
+  color: var(--bot-color, var(--accent));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bot-detail-header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bot-detail-header-title {
+  font-size: 20px;
+}
+
+.bot-detail-header-desc {
+  margin-top: 2px;
+}
+
+.bot-detail-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bot-detail-tabs {
+  margin-bottom: 20px;
+}
+
+.bot-detail-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Metric card overrides */
+.metric-val-compact {
+  font-size: 18px;
+  margin-top: 4px;
+}
+
+.metric-val-accent {
+  font-size: 18px;
+  margin-top: 4px;
+  color: var(--accent);
+}
+
+.metric-val-success {
+  color: var(--success);
+}
+
+/* Card layout & Code preview */
+.bot-detail-card {
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.bot-detail-card-padded {
+  padding: 20px;
+}
+
+.bot-detail-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.bot-detail-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.bot-detail-card-title-lg {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+}
+
+.bot-detail-card-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bot-detail-card-desc-spaced {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.bot-detail-code-pre {
+  margin: 0;
+  padding: 12px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  overflow-x: auto;
+}
+
+/* Customizer Form */
+.customizer-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.color-swatches-wrapper {
+  margin-bottom: 8px;
+}
+
+.color-swatch-item {
+  background-color: var(--swatch-color);
+}
+
+.color-hex-input {
+  width: 120px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.customizer-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.suggested-q-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.suggested-q-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.suggested-q-text {
+  color: var(--text-muted);
+}
+
+.suggested-q-delete {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.suggested-q-add-row {
+  display: flex;
+  gap: 6px;
+}
+
+.customizer-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* Sources Tab */
+.sources-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sources-mono-cell {
+  font-weight: 500;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.sources-chunks-cell {
+  font-size: 12px;
+}
+
+/* Analytics Tab */
+.analytics-q-cell {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.analytics-date-cell {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.analytics-add-btn {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+/* Embed Tab */
+.embed-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.embed-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+/* Settings Tab */
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 640px;
+}
+
+.danger-zone-card {
+  padding: 20px;
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.danger-zone-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--danger);
+  margin-bottom: 4px;
+}

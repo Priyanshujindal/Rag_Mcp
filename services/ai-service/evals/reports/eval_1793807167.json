@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-11-04T15:46:07.306538+00:00",
+  "dataset": "qa-pairs.json",
+  "knowledgeBaseId": "6aeb533ff6ef1bd5e2c90b15",
+  "total_queries": 3,
+  "hit_rate_at_k": 0.333,
+  "mrr": 0.333,
+  "avg_faithfulness": 0.204,
+  "avg_relevance": 0.133,
+  "report_file": "C:\\Users\\DELL\\OneDrive\\Documents\\Rag_Mcp\\services\\ai-service\\evals\\reports\\eval_1793807167.json",
+  "results": [
+    {
+      "id": "qa-001",
+      "question": "What is the primary function of chlorophyll in photosynthesis?",
+      "hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "faithfulness_score": 0.462,
+      "relevance_score": 0.4,
+      "retrieved_chunk_ids": [
+        "6aeb533ff6ef1bd5e2c90b16"
+      ]
+    },
+    {
+      "id": "qa-002",
+      "question": "How are customer refund requests handled?",
+      "hit": false,
+      "first_hit_rank": null,
+      "reciprocal_rank": 0.0,
+      "faithfulness_score": 0.067,
+      "relevance_score": 0.0,
+      "retrieved_chunk_ids": [
+        "6aeb533ff6ef1bd5e2c90b16"
+      ]
+    },
+    {
+      "id": "qa-003",
+      "question": "What authentication header is required for internal service calls?",
+      "hit": false,
+      "first_hit_rank": null,
+      "reciprocal_rank": 0.0,
+      "faithfulness_score": 0.083,
+      "relevance_score": 0.0,
+      "retrieved_chunk_ids": [
+        "6aeb533ff6ef1bd5e2c90b16"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+/* ============================================================
+   API KEYS PAGE STYLES
+   ============================================================ */
+
+.api-key-warning-banner {
+  background: var(--warning-dim);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: var(--warning);
+}
+
+.api-key-name-cell {
+  font-weight: 500;
+}
+
+.api-key-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  background: rgba(120, 120, 120, 0.1);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.api-key-date-cell {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.api-key-delete-btn {
+  color: var(--danger);
+}
+
+.api-key-secret-box {
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--success);
+  word-break: break-all;
+  margin-bottom: 12px;
+}
+

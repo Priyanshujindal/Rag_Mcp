@@ -1,0 +1,63 @@
+/* Live preview of generated presentations. Slides are laid out in inches; --in = pixels per inch. */
+.sdp-root { display: flex; flex-direction: column; gap: 14px; flex: 1; min-height: 0; }
+.sdp-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 10px; background: var(--sdp-light); flex-shrink: 0; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35); }
+.sdp-stage { text-align: left; }
+.sdp-slide { position: absolute; inset: 0; }
+.sdp-dark { background: var(--sdp-dark); }
+.sdp-light { background: var(--sdp-light); }
+
+.sdp-abs { position: absolute; margin: 0; overflow: hidden; line-height: 1.15; box-sizing: border-box; font-weight: 400; }
+.sdp-h { font-family: var(--sdp-hfont); }
+.sdp-b { font-family: var(--sdp-bfont); }
+.sdp-bold { font-weight: 700; }
+.sdp-italic { font-style: italic; }
+.sdp-right { justify-content: flex-end; text-align: right; }
+.sdp-middle { display: flex; align-items: center; }
+.sdp-bottom { display: flex; align-items: flex-end; }
+.sdp-middle-col { display: flex; flex-direction: column; justify-content: center; }
+.sdp-h.sdp-heading, h2.sdp-h, h3.sdp-h { font-weight: 700; }
+.sdp-label { letter-spacing: 0.12em; margin: 0 0 calc(var(--in) * 0.14); }
+
+.sdp-heading { color: var(--sdp-heading); }
+.sdp-ink { color: var(--sdp-ink); }
+.sdp-muted { color: var(--sdp-muted); }
+.sdp-on-dark { color: var(--sdp-on-dark); }
+.sdp-on-dark-muted { color: var(--sdp-on-dark-muted); }
+.sdp-accent-text-dark { color: var(--sdp-accent-dark); }
+.sdp-accent-text-light { color: color-mix(in srgb, var(--sdp-accent) 72%, #000); }
+.sdp-badge-text { color: var(--sdp-badge); }
+
+.sdp-circle { display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+.sdp-badge { background: var(--sdp-badge); color: #fff; }
+.sdp-accent-fill { background: var(--sdp-accent-dark); }
+.sdp-accent-fill-light { background: var(--sdp-accent); color: var(--sdp-accent-text); }
+.sdp-motif-large { background: color-mix(in srgb, var(--sdp-dark) 84%, var(--sdp-secondary)); }
+.sdp-motif-ring { border: calc(var(--in) * 0.02) solid color-mix(in srgb, var(--sdp-dark) 45%, var(--sdp-secondary)); background: transparent; }
+.sdp-motif-accent { background: var(--sdp-accent-dark); }
+
+.sdp-card { background: var(--sdp-card); border-radius: calc(var(--in) * 0.16); box-shadow: 0 calc(var(--in) * 0.03) calc(var(--in) * 0.09) rgba(0, 0, 0, 0.13); }
+.sdp-card-dark { background: var(--sdp-dark); border-radius: calc(var(--in) * 0.18); box-shadow: 0 calc(var(--in) * 0.03) calc(var(--in) * 0.09) rgba(0, 0, 0, 0.18); }
+.sdp-card-dark p, .sdp-card p { margin: 0; }
+.sdp-middle-col p { margin: 0; }
+
+.sdp-list { margin: 0; padding-left: calc(var(--in) * 0.28); }
+.sdp-list li { margin-bottom: calc(var(--in) * 0.14); }
+.sdp-list li::marker { color: var(--sdp-badge); }
+
+.sdp-line { background: color-mix(in srgb, var(--sdp-primary) 35%, #fff); border-radius: 999px; }
+.sdp-table { width: 100%; border-collapse: collapse; font-family: var(--sdp-bfont); color: var(--sdp-ink); }
+.sdp-table th { background: var(--sdp-badge); color: #fff; text-align: left; padding: calc(var(--in) * 0.14) calc(var(--in) * 0.15); font-weight: 700; }
+.sdp-table td { padding: calc(var(--in) * 0.14) calc(var(--in) * 0.15); }
+.sdp-table tbody tr:nth-child(odd) td { background: var(--sdp-card); }
+
+.sdp-chart-svg { width: 100%; height: 100%; }
+.sdp-legend-row { display: flex; align-items: center; gap: calc(var(--in) * 0.2); }
+.sdp-dot { width: calc(var(--in) * 0.3); height: calc(var(--in) * 0.3); border-radius: 50%; flex-shrink: 0; }
+.sdp-grow { flex: 1; }
+
+.sdp-thumbs { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 8px; }
+.sdp-thumb { font: inherit; text-align: left; flex: 0 0 132px; padding: 0; border: 2px solid transparent; border-radius: 8px; background: none; cursor: pointer; opacity: 0.75; transition: opacity 120ms ease, border-color 120ms ease; }
+.sdp-thumb .sdp-stage { box-shadow: none; border-radius: 6px; pointer-events: none; }
+.sdp-thumb:hover { opacity: 1; }
+.sdp-thumb.is-active { opacity: 1; border-color: #6366f1; }
+.sdp-thumb:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }

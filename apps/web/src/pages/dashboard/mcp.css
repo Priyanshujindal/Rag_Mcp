@@ -1,0 +1,89 @@
+/* ============================================================
+   MCP PLUGINS & TOOLS STYLES
+   ============================================================ */
+
+.mcp-server-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mcp-server-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mcp-server-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.mcp-transport-badge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+  background: rgba(120, 120, 120, 0.1);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+}
+
+.mcp-tool-left {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+
+.mcp-tool-icon {
+  color: var(--accent);
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.mcp-tool-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.mcp-perm-label {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.mcp-perm-label.auto {
+  color: var(--success);
+}
+
+.mcp-perm-label.approval {
+  color: var(--warning);
+}
+
+.mcp-review-btn {
+  gap: 4px;
+  font-size: 11px;
+}
+
+.icon-warning {
+  color: var(--warning);
+}
+
+.mcp-approval-code {
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  white-space: pre;
+}
+
+.mcp-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}

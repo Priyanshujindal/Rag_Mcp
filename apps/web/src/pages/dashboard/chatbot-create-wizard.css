@@ -1,0 +1,244 @@
+/* ============================================================
+   CHATBOT CREATE WIZARD STYLES
+   ============================================================ */
+
+.wizard-wrapper {
+  padding-bottom: 48px;
+}
+
+.wizard-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.wizard-header-title {
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.wizard-card {
+  padding: 24px;
+}
+
+.wizard-step-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.wizard-step-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.wizard-source-toggle {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.wizard-source-btn {
+  flex: 1;
+  height: 42px;
+  gap: 8px;
+}
+
+.wizard-input-wrapper {
+  position: relative;
+}
+
+.wizard-input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.wizard-input-with-icon {
+  padding-left: 36px;
+  height: 40px;
+}
+
+.wizard-upload-zone {
+  margin: 10px 0;
+}
+
+.wizard-upload-file-input {
+  display: none;
+}
+
+.wizard-upload-icon {
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.wizard-upload-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.wizard-upload-subtext {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.wizard-file-chip {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wizard-crawling-info {
+  background: var(--bg-hover);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wizard-crawling-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wizard-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.wizard-card-footer-between {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 24px;
+}
+
+.wizard-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.wizard-progress-track {
+  height: 6px;
+  width: 100%;
+  background: var(--bg-hover);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.wizard-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-full);
+  transition: width 400ms ease;
+  width: var(--progress-width, 0%);
+}
+
+.wizard-pages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wizard-page-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  background: var(--bg-hover);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.wizard-page-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wizard-page-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wizard-page-chunks {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.wizard-page-spinner {
+  color: var(--accent);
+}
+
+.wizard-form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wizard-success-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.wizard-success-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  background: var(--success-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wizard-success-icon-svg {
+  color: var(--success);
+}
+
+.wizard-success-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.wizard-code-snippet-box {
+  margin-bottom: 20px;
+}
+
+.wizard-code-pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.wizard-deploy-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
