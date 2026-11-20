@@ -22,6 +22,7 @@ from app.schemas.files import GenerateFileRequest, GenerateFileResponse
 from app.services.deck_planner import DeckPlanningError, plan_deck
 from app.services.deck_themes import theme_to_dict
 from app.services.file_generator import FileGenerator
+from app.services.image_generator import ImageGenerator
 from app.services.pptx_builder import build_pptx, expand_deck, legacy_slides, resolve_theme
 
 router = APIRouter(prefix="/files", tags=["File Generation"])
@@ -34,6 +35,11 @@ MIME_TYPES: Dict[str, str] = {
     "csv": "text/csv",
     "txt": "text/plain",
     "md": "text/markdown",
+    "png": "image/png",
+    "webp": "image/webp",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "image": "image/webp",
     "py": "text/x-python",
     "js": "text/javascript",
     "jsx": "text/javascript",
@@ -144,6 +150,27 @@ async def generate_file(
                 raw_bytes = FileGenerator.generate_csv(headers=headers, rows=rows)
                 preview_data["headers"] = headers
                 preview_data["rows"] = rows[:50]
+
+        elif file_type == "md":
+            content_text = payload.content or f"# {title}\n\nNo content provided."
+            raw_bytes = FileGenerator.generate_markdown(title=title, content=content_text)
+            clean_md = raw_bytes.decode("utf-8", errors="replace")
+            preview_data["text"] = clean_md[:2000]
+            preview_data["code"] = clean_md
+            preview_data["language"] = "markdown"
+
+        elif file_type in ("image", "png", "webp", "jpg", "jpeg"):
+            prompt = payload.content or title
+            raw_bytes, img_mime, img_meta = await ImageGenerator.generate_image(
+                prompt=prompt,
+                output_format="webp" if file_type in ("image", "webp") else "png",
+            )
+            mime_type = img_mime
+            ext = "webp" if "webp" in img_mime else "png" if "png" in img_mime else "jpg" if "jpeg" in img_mime else "svg"
+            filename = sanitize_filename(filename.rsplit(".", 1)[0], ext)
+            preview_data["imageUrl"] = f"data:{img_mime};base64,{base64.b64encode(raw_bytes).decode('ascii')}"
+            preview_data["prompt"] = prompt
+            preview_data.update(img_meta)
 
         else:
             # Code / Text / Config files

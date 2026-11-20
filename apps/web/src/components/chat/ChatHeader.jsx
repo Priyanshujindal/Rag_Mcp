@@ -19,6 +19,18 @@ import { api } from "@/lib/api/client";
 import { exportChat } from "@/lib/utils/chat-export";
 
 export const PROVIDER_OPTIONS = {
+  groq: {
+    id: "groq",
+    name: "Groq ⚡",
+    defaultModel: "qwen/qwen3.8-27b",
+    models: [
+      { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B ⚡ (Ultra Fast & Reasoning)" },
+      { id: "openai/gpt-oss-120b", name: "GPT OSS 120B (High Intelligence & Reasoning)" },
+      { id: "openai/gpt-oss-20b", name: "GPT OSS 20B (Fast & Lightweight)" },
+      { id: "allam-2-7b", name: "ALLaM 2 7B" },
+      { id: "openai/gpt-oss-safeguard-20b", name: "Safety GPT OSS 20B" },
+    ],
+  },
   gemini: {
     id: "gemini",
     name: "Google Gemini",
@@ -133,10 +145,12 @@ export function ChatHeader({
 
   const handleProviderSelect = (newProv) => {
     setSelectedProvider && setSelectedProvider(newProv);
-    if (newProv === "openrouter") {
+    if (newProv === "groq") {
+      setSelectedModel && setSelectedModel("qwen/qwen3.8-27b");
+    } else if (newProv === "openrouter") {
       setSelectedModel && setSelectedModel("nvidia/nemotron-3-ultra-550b-a55b:free");
     } else {
-      setSelectedModel && setSelectedModel("gemini-3.8-flash");
+      setSelectedModel && setSelectedModel("gemini-3.5-flash-lite");
     }
   };
 
@@ -144,9 +158,23 @@ export function ChatHeader({
     ? knowledgeBases.find(kb => kb && (kb._id === knowledgeBaseId || kb.id === knowledgeBaseId))
     : null;
 
-  const providerName = selectedProvider === "openrouter" ? "OpenRouter" : "Google Gemini";
+  const providerName =
+    selectedProvider === "groq"
+      ? "Groq ⚡"
+      : selectedProvider === "openrouter"
+      ? "OpenRouter"
+      : "Google Gemini";
+
   const modelShortName = selectedModel
-    ? selectedModel.includes("nemotron")
+    ? selectedModel.includes("qwen3.8")
+      ? "Qwen 3.8 27B"
+      : selectedModel.includes("gpt-oss-120b")
+      ? "GPT OSS 120B"
+      : selectedModel.includes("gpt-oss-20b")
+      ? "GPT OSS 20B"
+      : selectedModel.includes("allam")
+      ? "ALLaM 2 7B"
+      : selectedModel.includes("nemotron")
       ? "Nemotron Ultra"
       : selectedModel.includes("gemma")
       ? "Gemma 4"
@@ -159,7 +187,7 @@ export function ChatHeader({
       : selectedModel.includes("3.5")
       ? "Gemini 3.5 Lite"
       : selectedModel
-    : "Gemini 3.8 Flash";
+    : "Qwen 3.8 27B";
 
   const selectorLabel =
     chatMode === "general"
@@ -223,6 +251,7 @@ export function ChatHeader({
                   onChange={(e) => handleProviderSelect(e.target.value)}
                   className="dropdown-select"
                 >
+                  <option value="groq">Groq ⚡ (Ultra Fast)</option>
                   <option value="gemini">Google Gemini</option>
                   <option value="openrouter">OpenRouter</option>
                 </select>

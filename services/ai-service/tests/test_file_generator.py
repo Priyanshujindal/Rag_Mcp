@@ -55,6 +55,34 @@ def test_xlsx_generation():
     assert xlsx_bytes.startswith(b"PK\x03\x04")
 
 
+def test_xlsx_markdown_stripping_and_formatting():
+    headers = ["**Category**", "Budget", "Actual"]
+    rows = [
+        ["**Housing**", "$1,500", "$1,450"],
+        ["**Transportation**", "$300", "$320"],
+        ["**Total**", "$1,800", "$1,770"],
+    ]
+    xlsx_bytes = FileGenerator.generate_xlsx("Budget", headers, rows, title="Monthly Budget")
+    assert xlsx_bytes.startswith(b"PK\x03\x04")
+
+    import io
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes))
+    ws = wb.active
+    # Title banner at row 1, headers at row 4, data at row 5+
+    assert ws.cell(row=4, column=1).value == "Category"
+    assert ws.cell(row=5, column=1).value == "Housing"
+    assert ws.cell(row=5, column=1).font.bold is True
+    assert ws.cell(row=6, column=1).value == "Transportation"
+    assert ws.cell(row=6, column=1).font.bold is True
+    # Verify currency parsed to number
+    assert ws.cell(row=6, column=2).value == 300
+    assert '"$"#' in ws.cell(row=6, column=2).number_format
+    # Verify total row has double bottom border
+    assert ws.cell(row=7, column=1).value == "Total"
+    assert ws.cell(row=7, column=1).border.bottom.style == "double"
+
+
 def test_csv_generation():
     headers = ["City", "Population"]
     rows = [["New York", 8400000], ["Los Angeles", 3900000]]
@@ -70,6 +98,19 @@ def test_code_generation():
     code_bytes = FileGenerator.generate_code_or_text(code)
     assert isinstance(code_bytes, bytes)
     assert code_bytes.decode("utf-8") == code
+
+
+def test_markdown_generation():
+    raw_content = "Sure! Here is the file:\n```markdown\n# Architecture Guide\n\n## Section 1\nDetails here.\n```\nHope this helps!"
+    md_bytes = FileGenerator.generate_markdown("Architecture Guide", raw_content)
+    assert isinstance(md_bytes, bytes)
+    text = md_bytes.decode("utf-8")
+    assert text.startswith("# Architecture Guide")
+    assert "## Section 1" in text
+    assert "Details here." in text
+    assert "```markdown" not in text
+    assert "Sure! Here" not in text
+    assert "Hope this helps!" not in text
 
 
 # ---------------------------------------------------------------------------

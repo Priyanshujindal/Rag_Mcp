@@ -52,6 +52,32 @@ describe("Artifacts & File Generation Engine", () => {
       expect(res.filename).toContain(".py");
     });
 
+    it("detects Markdown (.md) generation intent with 'md file'", () => {
+      const res = FileIntentService.detectFileIntent("generate a md file about artificial intelligence");
+      expect(res.hasIntent).toBe(true);
+      expect(res.fileType).toBe("md");
+      expect(res.filename).toContain(".md");
+      expect(res.title.toLowerCase()).toContain("artificial intelligence");
+    });
+
+    it("detects image generation intent", () => {
+      const res = FileIntentService.detectFileIntent("generate an image of a cybernetic cat in Tokyo");
+      expect(res.hasIntent).toBe(true);
+      expect(res.fileType).toBe("image");
+      expect(res.filename).toContain(".webp");
+      expect(res.title.toLowerCase()).toContain("cybernetic cat");
+    });
+
+    it("cleans markdown content by stripping outer fences, preamble, and postamble", () => {
+      const raw = "Sure! Here is your document:\n```markdown\n# Architecture Guide\n\nThis is the content.\n```\nHope this helps!";
+      const cleaned = FileIntentService.cleanMarkdownContent(raw, "Architecture Guide");
+      expect(cleaned).toContain("# Architecture Guide");
+      expect(cleaned).toContain("This is the content.");
+      expect(cleaned).not.toContain("```markdown");
+      expect(cleaned).not.toContain("Sure! Here is");
+      expect(cleaned).not.toContain("Hope this helps!");
+    });
+
     it("detects previous message conversion intent", () => {
       const res = FileIntentService.detectFileIntent("Convert this response into a PDF.");
       expect(res.hasIntent).toBe(true);
@@ -78,6 +104,21 @@ describe("Artifacts & File Generation Engine", () => {
       expect(parsed.rows.length).toBe(2);
       expect(parsed.rows[0]).toEqual(["Laptop", 1200, 5]);
       expect(parsed.rows[1]).toEqual(["Mouse", 25, 50]);
+    });
+
+    it("strips markdown asterisks and parses currency/numbers from tables", () => {
+      const mdTable = `
+| **Category** | **Budget** | **Actual** | Notes |
+|---|---|---|---|
+| **Housing** | $1,500 | $1,450 | Rent |
+| **Transportation** | $300 | $320 | Gas and metro |
+| **Total** | **$1,800** | **$1,770** | Monthly sum |
+      `;
+      const parsed = FileIntentService.parseMarkdownTable(mdTable);
+      expect(parsed.headers).toEqual(["Category", "Budget", "Actual", "Notes"]);
+      expect(parsed.rows[0]).toEqual(["Housing", 1500, 1450, "Rent"]);
+      expect(parsed.rows[1]).toEqual(["Transportation", 300, 320, "Gas and metro"]);
+      expect(parsed.rows[2]).toEqual(["Total", 1800, 1770, "Monthly sum"]);
     });
 
     it("extracts code blocks from markdown responses", () => {

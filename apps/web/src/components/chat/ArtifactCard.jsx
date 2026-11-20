@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Image as ImageIcon,
 } from "lucide-react";
 import { getAccessToken, getActiveWorkspaceId } from "@/lib/api/client";
 import "./artifact-card.css";
@@ -61,6 +62,20 @@ function getFileTypeIcon(fileType = "") {
       icon: <FileSpreadsheet size={20} />,
       label: t.toUpperCase(),
       className: "artifact-icon-xlsx",
+    };
+  }
+  if (t === "md" || t === "markdown") {
+    return {
+      icon: <FileText size={20} />,
+      label: "MD",
+      className: "artifact-icon-docx",
+    };
+  }
+  if (t === "image" || t === "png" || t === "webp" || t === "jpg" || t === "jpeg") {
+    return {
+      icon: <ImageIcon size={20} />,
+      label: "IMG",
+      className: "artifact-icon-image",
     };
   }
   if (

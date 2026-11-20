@@ -63,7 +63,13 @@ export async function streamChatMessage({
         chatMode,
         conversationId: conversationId || undefined,
         provider,
-        model: model || (provider === "openrouter" ? "nvidia/nemotron-3-ultra-550b-a55b:free" : "gemini-3.5-flash-lite"),
+        model: model || (
+          provider === "groq"
+            ? "qwen/qwen3.8-27b"
+            : provider === "openrouter"
+            ? "nvidia/nemotron-3-ultra-550b-a55b:free"
+            : "gemini-3.5-flash-lite"
+        ),
         webSearch: isWebSearch,
         isThinking,
         attachedDocument: attachedDocument || (attachedDocuments?.[0] || null),

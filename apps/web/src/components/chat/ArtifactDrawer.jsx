@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import SlideDeckPreview from "./deck-preview/SlideDeckPreview.jsx";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   X,
   Code2,
@@ -352,6 +353,27 @@ export function ArtifactDrawer({ artifact, onClose }) {
                 <h1 className="artifact-doc-title">{previewData.title || artifact.filename || "Document Report"}</h1>
                 <div className="artifact-doc-content">{previewData.text || rawCode || "Document generated successfully."}</div>
               </div>
+            </div>
+          ) : // 4.5. Markdown Document View
+          fileType === "md" || fileType === "markdown" ? (
+            <div className="artifact-doc-container">
+              <div className="artifact-doc-paper artifact-markdown-paper">
+                <MarkdownRenderer content={rawCode || previewData.code || previewData.text || "# Document"} />
+              </div>
+            </div>
+          ) : // 4.6. Image View (PNG, WEBP, JPG)
+          fileType === "image" || fileType === "png" || fileType === "webp" || fileType === "jpg" || fileType === "jpeg" ? (
+            <div className="artifact-image-container" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: 32, overflow: "auto", background: "#090d16" }}>
+              <img
+                src={previewData.imageUrl || `/api/v1/artifacts/${artifact.id || artifact._id}/download`}
+                alt={artifact.filename || "Generated Image"}
+                style={{ maxWidth: "100%", maxHeight: "calc(100% - 60px)", objectFit: "contain", borderRadius: 12, boxShadow: "0 10px 40px rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}
+              />
+              {previewData.prompt && (
+                <p style={{ marginTop: 16, color: "#94a3b8", fontSize: "0.875rem", textAlign: "center", maxWidth: 600, fontStyle: "italic" }}>
+                  "{previewData.prompt}"
+                </p>
+              )}
             </div>
           ) : // 5. HTML / SVG preview
           artifact.code ? (

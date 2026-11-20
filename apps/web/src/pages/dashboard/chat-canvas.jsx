@@ -23,6 +23,7 @@ export default function ChatCanvas() {
       const storedProvider = localStorage.getItem("ragmcp_provider");
       const storedModel = localStorage.getItem("ragmcp_model");
       if (storedModel) return storedModel;
+      if (storedProvider === "groq") return "qwen/qwen3.8-27b";
       return storedProvider === "openrouter"
         ? "nvidia/nemotron-3-ultra-550b-a55b:free"
         : "gemini-3.5-flash-lite";
@@ -37,7 +38,13 @@ export default function ChatCanvas() {
       localStorage.setItem("ragmcp_provider", newProvider);
     } catch {}
 
-    if (newProvider === "openrouter") {
+    if (newProvider === "groq") {
+      const defaultModel = "qwen/qwen3.8-27b";
+      setSelectedModel(defaultModel);
+      try {
+        localStorage.setItem("ragmcp_model", defaultModel);
+      } catch {}
+    } else if (newProvider === "openrouter") {
       const defaultModel = "nvidia/nemotron-3-ultra-550b-a55b:free";
       setSelectedModel(defaultModel);
       try {
@@ -58,12 +65,17 @@ export default function ChatCanvas() {
       localStorage.setItem("ragmcp_model", newModel);
     } catch {}
 
+    const isGroqModel =
+      newModel.includes("qwen/") ||
+      newModel.includes("gpt-oss") ||
+      newModel.includes("allam");
+
     const isOpenRouterModel =
       newModel.includes("nvidia/") ||
       newModel.includes("openrouter/") ||
       newModel.includes("google/gemma");
 
-    const inferredProvider = isOpenRouterModel ? "openrouter" : "gemini";
+    const inferredProvider = isGroqModel ? "groq" : isOpenRouterModel ? "openrouter" : "gemini";
     if (inferredProvider !== selectedProvider) {
       setSelectedProvider(inferredProvider);
       try {

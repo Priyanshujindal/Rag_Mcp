@@ -12,6 +12,9 @@ if "HF_HUB_OFFLINE" not in os.environ and "HF_TOKEN" not in os.environ:
 # Locate repo root by walking up from this file: services/ai-service/app/core/config.py -> repo root is 4 levels up
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ENV_FILE_PATH = REPO_ROOT / ".env"
+SERVICE_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+
+_env_files = [str(f) for f in (ENV_FILE_PATH, SERVICE_ENV_PATH) if f.exists()]
 
 
 class Settings(BaseSettings):
@@ -20,7 +23,7 @@ class Settings(BaseSettings):
     Fails fast with clear, secret-free error messages.
     """
     model_config = SettingsConfigDict(
-        env_file=str(ENV_FILE_PATH) if ENV_FILE_PATH.exists() else None,
+        env_file=_env_files if _env_files else None,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -58,6 +61,8 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key")
     OPENAI_API_KEY: str = Field(default="", description="OpenAI API key")
     OPENROUTER_API_KEY: str = Field(default="", description="OpenRouter API key")
+    GROQ_API_KEY: str = Field(default="", description="Groq API key")
+    REPLICATE_API_KEY: str = Field(default="", description="Replicate API key")
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434", description="Ollama server endpoint")
 
     # Server settings

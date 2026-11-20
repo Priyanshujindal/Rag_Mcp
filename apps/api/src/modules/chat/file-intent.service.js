@@ -22,8 +22,40 @@ const FILE_TYPE_MAP = [
   { type: "sql", ext: "sql", patterns: [/\bsql\b/i, /\bsql query\b/i, /\bsql script\b/i, /\.sql\b/i] },
   { type: "java", ext: "java", patterns: [/\bjava\b/i, /\.java\b/i] },
   { type: "cpp", ext: "cpp", patterns: [/\bc\+\+\b/i, /\bcpp\b/i, /\.cpp\b/i] },
-  { type: "md", ext: "md", patterns: [/\bmarkdown\b/i, /\.md\b/i] },
-  { type: "txt", ext: "txt", patterns: [/\bplain text\b/i, /\btext file\b/i, /\.txt\b/i] },
+  {
+    type: "image",
+    ext: "webp",
+    patterns: [
+      /\bimages?\b/i,
+      /\bpictures?\b/i,
+      /\bphotos?\b/i,
+      /\billustrations?\b/i,
+      /\bdrawings?\b/i,
+      /\bartworks?\b/i,
+      /\bwallpapers?\b/i,
+      /\.png\b/i,
+      /\.jpe?g\b/i,
+      /\.webp\b/i,
+    ],
+  },
+  {
+    type: "md",
+    ext: "md",
+    patterns: [
+      /\bmarkdown\b/i,
+      /\bmd\b/i,
+      /\.md\b/i,
+      /\bmd file\b/i,
+      /\bmarkdown file\b/i,
+      /\bmd document\b/i,
+      /\bmarkdown document\b/i,
+    ],
+  },
+  {
+    type: "txt",
+    ext: "txt",
+    patterns: [/\bplain text\b/i, /\btext file\b/i, /\btxt\b/i, /\.txt\b/i, /\btxt file\b/i],
+  },
 ];
 
 const TRIGGER_VERBS = [
@@ -37,6 +69,11 @@ const TRIGGER_VERBS = [
   "save",
   "produce",
   "write",
+  "draw",
+  "paint",
+  "render",
+  "illustrate",
+  "sketch",
   "give me a",
   "give me an",
 ];
@@ -121,6 +158,9 @@ export class FileIntentService {
       else if (matchedType.type === "docx") title = "Document Report";
       else if (matchedType.type === "pptx") title = "Presentation Overview";
       else if (matchedType.type === "xlsx" || matchedType.type === "csv") title = "Data Table";
+      else if (matchedType.type === "md") title = "Markdown Document";
+      else if (matchedType.type === "txt") title = "Text Document";
+      else if (matchedType.type === "image") title = "Generated Artwork";
       else title = "Generated Code";
     }
 
@@ -158,21 +198,39 @@ export class FileIntentService {
       return { headers: [], rows: [] };
     }
 
+    const cleanCell = (str) => {
+      if (typeof str !== "string") return str;
+      return str
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/__(.*?)__/g, "$1")
+        .replace(/(?<!\w)\*(.*?)\*(?!\w)/g, "$1")
+        .replace(/(?<!\w)_(.*?)_(?!\w)/g, "$1")
+        .replace(/`([^`]+)`/g, "$1")
+        .trim();
+    };
+
     const parseRow = (line) =>
       line
         .slice(1, -1)
         .split("|")
         .map((cell) => cell.trim());
 
-    const headers = parseRow(tableLines[0]);
+    const headers = parseRow(tableLines[0]).map(cleanCell);
     // Skip separator line (e.g. |---|---|)
     const dataLines = tableLines.slice(1).filter((l) => !/^\|[\s\-:|]+\|$/.test(l));
 
     const rows = dataLines.map((line) => {
       return parseRow(line).map((val) => {
-        // Parse numbers if numeric
-        const num = Number(val.replace(/[$,]/g, ""));
-        return !isNaN(num) && val.trim() !== "" ? num : val;
+        const cleaned = cleanCell(val);
+        // Check if numeric / currency / percentage (e.g. "$1,500", "1,500.50", "(250)", "-$50", "15.5%")
+        const isNegative = /^\(.*\)$/.test(cleaned) || /^-\$?[0-9]/.test(cleaned);
+        const numStr = cleaned.replace(/[$,%()]/g, "").trim();
+        const num = Number(numStr);
+        if (!isNaN(num) && numStr !== "") {
+          const finalNum = isNegative ? -Math.abs(num) : num;
+          return cleaned.endsWith("%") ? finalNum / 100 : finalNum;
+        }
+        return cleaned;
       });
     });
 
@@ -243,6 +301,86 @@ export class FileIntentService {
     }
 
     return slides;
+  }
+
+  /**
+   * Cleans and normalizes generated Markdown content.
+   * Strips conversational preamble/postamble, unwraps top-level markdown code blocks if present,
+   * and ensures a top-level H1 title exists.
+   * @param {string} text
+   * @param {string} [fallbackTitle]
+   * @returns {string}
+   */
+  static cleanMarkdownContent(text = "", fallbackTitle = "") {
+    if (!text) return text;
+    let content = text.trim();
+
+    // 1. Strip common LLM chat preamble
+    const preamblePatterns = [
+      /^(here('s| is)\s+(your|the)\s+)/i,
+      /^(sure[,!]?\s*|okay[,!]?\s*|certainly[,!]?\s*)/i,
+      /^(below (is|you'll find))/i,
+      /^(the following (is|contains|provides))/i,
+      /^(i('ve| have)\s+(created|generated|written|prepared))/i,
+      /^(this (markdown|md|document|file)\s+(covers|explains|contains|provides))/i,
+    ];
+
+    const lines = content.split("\n");
+    let startIdx = 0;
+    while (startIdx < lines.length) {
+      const line = lines[startIdx].trim();
+      if (!line) {
+        startIdx++;
+        continue;
+      }
+      if (preamblePatterns.some((p) => p.test(line)) && !line.startsWith("#")) {
+        startIdx++;
+        continue;
+      }
+      break;
+    }
+
+    content = lines.slice(startIdx).join("\n").trim();
+
+    // 2. Unwrap if wrapped in ```markdown ... ``` or ```md ... ```
+    const codeBlockMatch = content.match(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/i);
+    if (codeBlockMatch) {
+      content = codeBlockMatch[1].trim();
+    } else {
+      const innerMatch = content.match(/```(?:markdown|md)\s*\n([\s\S]*?)\n```/i);
+      if (innerMatch) {
+        content = innerMatch[1].trim();
+      }
+    }
+
+    // 3. Strip trailing conversational closing remarks
+    const postamblePatterns = [
+      /^(hope this (helps|is useful)|let me know if|feel free to|if you (have|need))/i,
+    ];
+
+    const remainingLines = content.split("\n");
+    let endIdx = remainingLines.length;
+    while (endIdx > 0) {
+      const line = remainingLines[endIdx - 1].trim();
+      if (!line) {
+        endIdx--;
+        continue;
+      }
+      if (postamblePatterns.some((p) => p.test(line)) && !line.startsWith("#")) {
+        endIdx--;
+        continue;
+      }
+      break;
+    }
+
+    content = remainingLines.slice(0, endIdx).join("\n").trim();
+
+    // Ensure document has top-level # heading if fallbackTitle provided
+    if (fallbackTitle && !content.startsWith("#")) {
+      content = `# ${fallbackTitle}\n\n${content}`;
+    }
+
+    return content;
   }
 }
 

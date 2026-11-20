@@ -1,6 +1,51 @@
 import React from "react";
 
 const PROVIDERS = {
+  groq: {
+    name: "Groq ⚡",
+    models: [
+      {
+        id: "qwen/qwen3.8-27b",
+        name: "Qwen 3.8 27B ⚡",
+        free: true,
+        recommended: true,
+        context: "131K tokens",
+        limit: "Ultra-fast LPU",
+      },
+      {
+        id: "openai/gpt-oss-120b",
+        name: "GPT OSS 120B",
+        free: true,
+        recommended: false,
+        context: "131K tokens",
+        limit: "Reasoning enabled",
+      },
+      {
+        id: "openai/gpt-oss-20b",
+        name: "GPT OSS 20B",
+        free: true,
+        recommended: false,
+        context: "131K tokens",
+        limit: "Lightweight",
+      },
+      {
+        id: "allam-2-7b",
+        name: "ALLaM 2 7B",
+        free: true,
+        recommended: false,
+        context: "4K tokens",
+        limit: "Fast bilingual",
+      },
+      {
+        id: "openai/gpt-oss-safeguard-20b",
+        name: "Safety GPT OSS 20B",
+        free: true,
+        recommended: false,
+        context: "131K tokens",
+        limit: "Guardrail",
+      },
+    ],
+  },
   gemini: {
     name: "Google Gemini",
     models: [

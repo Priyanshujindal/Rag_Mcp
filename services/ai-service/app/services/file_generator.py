@@ -848,36 +848,193 @@ class FileGenerator:
     # =========================================================================
 
     @staticmethod
+    def _format_cell_value(val: Any) -> tuple[Any, Optional[str], bool, bool]:
+        """
+        Parses cell values to strip raw markdown formatting and extract numbers/currency.
+        Returns (cleaned_value, excel_number_format, is_bold, is_numeric).
+        """
+        if val is None:
+            return "", None, False, False
+        if isinstance(val, (int, float)):
+            return (val, "#,##0.00" if isinstance(val, float) else "#,##0", False, True)
+
+        s = str(val).strip()
+        is_bold = bool(re.search(r"(\*\*|__).+?(\*\*|__)", s))
+        clean_s = _strip_md_markers(s)
+
+        # Check currency e.g. $1,500.00, -$50, ($100), €500, £300
+        curr_match = re.match(
+            r"^([$€£¥])?\s*([+-]?)\s*([$€£¥])?\s*\(?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)\)?\s*([$€£¥])?$",
+            clean_s,
+        )
+        if curr_match:
+            is_negative = ("(" in clean_s and ")" in clean_s) or ("-" in clean_s)
+            num_str = curr_match.group(4).replace(",", "")
+            try:
+                num = float(num_str) if "." in num_str else int(num_str)
+                if is_negative:
+                    num = -abs(num)
+                symbol = curr_match.group(1) or curr_match.group(3) or curr_match.group(5)
+                if symbol:
+                    fmt = f'"{symbol}"#,##0.00' if isinstance(num, float) else f'"{symbol}"#,##0'
+                else:
+                    fmt = "#,##0.00" if isinstance(num, float) else "#,##0"
+                return num, fmt, is_bold, True
+            except ValueError:
+                pass
+
+        # Check percentage e.g. 15.5%, -5%
+        pct_match = re.match(r"^([+-]?[0-9]+(?:\.[0-9]+)?)\s*%$", clean_s)
+        if pct_match:
+            try:
+                num = float(pct_match.group(1)) / 100.0
+                return num, "0.0%" if "." in pct_match.group(1) else "0%", is_bold, True
+            except ValueError:
+                pass
+
+        # Check plain number with optional commas e.g. 1,500 or 1500.50
+        num_match = re.match(r"^([+-]?[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[+-]?[0-9]+(?:\.[0-9]+)?)$", clean_s)
+        if num_match:
+            raw_num = num_match.group(1).replace(",", "")
+            try:
+                num = float(raw_num) if "." in raw_num else int(raw_num)
+                fmt = "#,##0.00" if isinstance(num, float) else "#,##0"
+                return num, fmt, is_bold, True
+            except ValueError:
+                pass
+
+        return clean_s, None, is_bold, False
+
+    @staticmethod
     def generate_xlsx(sheet_name: str, headers: List[str],
                       rows: List[List[Any]], title: str = "") -> bytes:
-        wb = openpyxl.Workbook(); ws = wb.active
-        ws.title = (sheet_name or "Sheet1")[:31]
-        hf = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        hfill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
-        thin  = Border(
-            left=Side(style="thin", color="CBD5E1"), right=Side(style="thin", color="CBD5E1"),
-            top=Side(style="thin",  color="CBD5E1"), bottom=Side(style="thin", color="CBD5E1"))
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = (sheet_name or "Data")[:31]
+        ws.views.sheetView[0].showGridLines = True
+
+        clean_headers = [_strip_md_markers(str(h)) for h in headers]
+        num_cols = max(len(clean_headers), 1)
+
         sr = 1
+        # 1. Professional Title Banner
         if title:
-            ws.merge_cells(start_row=1, start_column=1, end_row=1,
-                           end_column=max(len(headers), 1))
-            tc = ws.cell(row=1, column=1, value=_strip_md_markers(title))
-            tc.font = Font(name="Calibri", size=14, bold=True, color="0F172A"); sr = 3
-        for ci, h in enumerate(headers, start=1):
-            cell = ws.cell(row=sr, column=ci, value=_strip_md_markers(str(h)))
-            cell.font = hf; cell.fill = hfill
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = thin
-        for ri, row in enumerate(rows, start=sr+1):
-            for ci, v in enumerate(row, start=1):
-                cell = ws.cell(row=ri, column=ci, value=v)
-                cell.border = thin
-                cell.alignment = Alignment(
-                    horizontal="right" if isinstance(v, (int, float)) else "left")
+            clean_title = _strip_md_markers(title)
+            ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
+            tc = ws.cell(row=1, column=1, value=clean_title)
+            tc.font = Font(name="Calibri", size=15, bold=True, color="FFFFFF")
+            tc.fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")  # Slate 800
+            tc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+            ws.row_dimensions[1].height = 36
+
+            # Subtitle / metadata row
+            ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=num_cols)
+            today_str = datetime.date.today().strftime("%B %d, %Y")
+            sub = ws.cell(row=2, column=1, value=f"Generated on {today_str} • Rag_Mcp AI Analytics")
+            sub.font = Font(name="Calibri", size=9, italic=True, color="64748B")
+            sub.fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")  # Slate 50
+            sub.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+            ws.row_dimensions[2].height = 18
+
+            # Buffer row
+            ws.row_dimensions[3].height = 8
+            sr = 4
+
+        # 2. Table Column Headers
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="334155", end_color="334155", fill_type="solid")  # Slate 700
+        header_border = Border(
+            left=Side(style="thin", color="475569"),
+            right=Side(style="thin", color="475569"),
+            top=Side(style="medium", color="1E293B"),
+            bottom=Side(style="medium", color="1E293B"),
+        )
+        ws.row_dimensions[sr].height = 28
+
+        for ci, h in enumerate(clean_headers, start=1):
+            cell = ws.cell(row=sr, column=ci, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = header_border
+
+        # Freeze panes so header row stays fixed while scrolling
+        ws.freeze_panes = f"A{sr + 1}"
+
+        # 3. Data Rows
+        data_font = Font(name="Calibri", size=10, color="1E293B")
+        bold_font = Font(name="Calibri", size=10, bold=True, color="0F172A")
+        total_font = Font(name="Calibri", size=11, bold=True, color="0F172A")
+
+        zebra_even = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+        zebra_odd = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        total_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+
+        thin_border = Border(
+            left=Side(style="thin", color="E2E8F0"),
+            right=Side(style="thin", color="E2E8F0"),
+            top=Side(style="thin", color="E2E8F0"),
+            bottom=Side(style="thin", color="E2E8F0"),
+        )
+        total_border = Border(
+            left=Side(style="thin", color="E2E8F0"),
+            right=Side(style="thin", color="E2E8F0"),
+            top=Side(style="thin", color="94A3B8"),
+            bottom=Side(style="double", color="0F172A"),  # Classic accounting double-underline
+        )
+
+        for ri, row in enumerate(rows, start=sr + 1):
+            # Check if this row is a total/summary row
+            row_str = " ".join(str(cell_val or "").lower() for cell_val in row)
+            first_cell_str = str(row[0] or "").lower() if row else ""
+            is_total_row = (
+                any(first_cell_str.strip().startswith(kw) for kw in ("total", "grand total", "subtotal", "sum", "overall", "average"))
+                or (len(rows) > 1 and ri == sr + len(rows) and "total" in row_str)
+            )
+
+            fill_to_use = total_fill if is_total_row else (zebra_even if (ri % 2 == 0) else zebra_odd)
+            border_to_use = total_border if is_total_row else thin_border
+            ws.row_dimensions[ri].height = 24 if is_total_row else 20
+
+            for ci, raw_val in enumerate(row, start=1):
+                clean_val, num_fmt, is_bold_cell, is_numeric = FileGenerator._format_cell_value(raw_val)
+                cell = ws.cell(row=ri, column=ci, value=clean_val)
+                cell.fill = fill_to_use
+                cell.border = border_to_use
+
+                if is_total_row:
+                    cell.font = total_font
+                elif is_bold_cell:
+                    cell.font = bold_font
+                else:
+                    cell.font = data_font
+
+                if num_fmt:
+                    cell.number_format = num_fmt
+
+                if is_numeric:
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif str(clean_val).strip().isdigit() or re.match(r"^\d{4}-\d{2}-\d{2}$", str(clean_val).strip()):
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+
+        # 4. Auto-fit column widths with breathing room
         for col in ws.columns:
-            mx = max(len(str(c.value or "")) for c in col)
-            ws.column_dimensions[get_column_letter(col[0].column)].width = max(mx+3, 12)
-        buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
+            col_letter = get_column_letter(col[0].column)
+            max_len = 0
+            for c in col:
+                if c.row < sr:
+                    continue  # skip title banner for column width
+                val_str = str(c.value or "")
+                if c.number_format and ('"$"#' in c.number_format or "$" in c.number_format):
+                    val_str = "$" + val_str
+                max_len = max(max_len, len(val_str))
+            ws.column_dimensions[col_letter].width = min(max(max_len + 4, 13), 50)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
 
     # =========================================================================
     # CSV
@@ -890,6 +1047,75 @@ class FileGenerator:
         if headers: w.writerow(headers)
         for r in rows: w.writerow(r)
         return out.getvalue().encode("utf-8")
+
+    # =========================================================================
+    # Markdown
+    # =========================================================================
+
+    @staticmethod
+    def generate_markdown(title: str, content: str) -> bytes:
+        """
+        Cleans and formats a professional Markdown (.md) document.
+        - Strips outer code fences if present (```markdown ... ```)
+        - Cleans conversation preambles and postambles
+        - Ensures top-level # Title exists
+        - Normalizes spacing and returns clean UTF-8 encoded bytes
+        """
+        raw = (content or "").strip()
+
+        # 1. Strip common LLM preamble at the top
+        lines = raw.split("\n")
+        start = 0
+        preamble_re = re.compile(
+            r"^(here('s| is)|sure[,!]|okay[,!]|certainly|below is|the following is|i have created|this markdown)",
+            re.IGNORECASE,
+        )
+        while start < len(lines):
+            line_str = lines[start].strip()
+            if not line_str:
+                start += 1
+                continue
+            if preamble_re.match(line_str) and not line_str.startswith("#"):
+                start += 1
+                continue
+            break
+
+        cleaned_text = "\n".join(lines[start:]).strip()
+
+        # 2. Check if text is enclosed in a markdown code fence
+        fence_match = re.match(r"^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$", cleaned_text, flags=re.IGNORECASE)
+        if fence_match:
+            cleaned_text = fence_match.group(1).strip()
+        else:
+            inner_fence = re.search(r"```(?:markdown|md)\s*\n([\s\S]*?)\n```", cleaned_text, flags=re.IGNORECASE)
+            if inner_fence:
+                cleaned_text = inner_fence.group(1).strip()
+
+        # 3. Strip common trailing remarks if at end
+        trailing_lines = cleaned_text.split("\n")
+        end = len(trailing_lines)
+        trailing_re = re.compile(
+            r"^(hope this (helps|is useful)|let me know if|feel free to|if you (have|need))",
+            re.IGNORECASE,
+        )
+        while end > 0:
+            last_line = trailing_lines[end - 1].strip()
+            if not last_line:
+                end -= 1
+                continue
+            if trailing_re.match(last_line) and not last_line.startswith("#"):
+                end -= 1
+                continue
+            break
+
+        final_text = "\n".join(trailing_lines[:end]).strip()
+
+        if title and not re.match(r"^#\s+", final_text):
+            clean_title = _strip_md_markers(title)
+            final_text = f"# {clean_title}\n\n{final_text}"
+
+        final_text = re.sub(r"\n{3,}", "\n\n", final_text) + "\n"
+        return final_text.encode("utf-8")
 
     # =========================================================================
     # Code / Text

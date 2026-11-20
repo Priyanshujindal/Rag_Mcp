@@ -7,6 +7,7 @@ from app.core.config import Settings, verify_embedding_model
 def test_config_loads_defaults():
     """Verify default configurations adhere to requirements."""
     settings = Settings(
+        _env_file=None,
         MONGODB_URI="mongodb://localhost:27017",
         INTERNAL_API_KEY="0123456789abcdef0123456789abcdef",
     )

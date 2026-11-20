@@ -46,7 +46,7 @@ function stripLlmPreamble(text) {
     /^(this document (covers|provides|contains|explains))/i,
     /^(let me (create|generate|write))/i,
     /^(i've (created|generated|prepared|written))/i,
-    /^(this (pdf|docx|word|document|file)\s+(will|is|contains))/i,
+    /^(this (pdf|docx|word|markdown|md|document|file)\s+(will|is|contains))/i,
   ];
 
   const lines = text.split("\n");
@@ -281,8 +281,20 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
       }
     }
 
-    const resolvedProvider = provider || (model && (model.includes("nvidia") || model.includes("openrouter") || model.includes("gemma")) ? "openrouter" : "gemini");
-    const resolvedModel = model || (resolvedProvider === "openrouter" ? "nvidia/nemotron-3-ultra-550b-a55b:free" : "gemini-3.8-flash");
+    const resolvedProvider = provider || (
+      model && (model.includes("qwen") || model.includes("gpt-oss") || model.includes("allam") || model.includes("groq"))
+        ? "groq"
+        : model && (model.includes("nvidia") || model.includes("openrouter") || model.includes("gemma"))
+        ? "openrouter"
+        : "gemini"
+    );
+    const resolvedModel = model || (
+      resolvedProvider === "groq"
+        ? "qwen/qwen3.8-27b"
+        : resolvedProvider === "openrouter"
+        ? "nvidia/nemotron-3-ultra-550b-a55b:free"
+        : "gemini-3.5-flash-lite"
+    );
 
     const isWebSearch = Boolean(webSearch ?? options.webSearch);
     const resolvedThinking = Boolean(isThinking ?? options.isThinking);
@@ -386,16 +398,26 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
           "\n\nImportant formatting instructions: Please structure the presentation clearly. Use '# Slide: [Slide Title]' for each slide and bullet points ('- [point]') for its content.";
       } else if (fileIntent.fileType === "xlsx" || fileIntent.fileType === "csv") {
         formatGuide =
-          "\n\nImportant formatting instructions: Please output the requested tabular data as a clean markdown table with headers and data rows (| Col 1 | Col 2 |).";
+          "\n\nImportant formatting instructions: Please output the requested tabular data as a clean, complete markdown table with clear column headers and structured data rows (| Col 1 | Col 2 |). Include realistic categories, numeric values, and a Total row where appropriate. Output clean text and numbers without wrapping cell values in markdown bold asterisks (do NOT use **Text** or **$100** inside table cells).";
       } else if (["py", "js", "ts", "html", "css", "json", "yaml", "sql", "java", "cpp"].includes(fileIntent.fileType)) {
         formatGuide = `\n\nImportant formatting instructions: Please output the complete, functional source code cleanly inside a \`\`\`${fileIntent.fileType} code block.`;
-      } else if (["pdf", "docx", "txt", "md"].includes(fileIntent.fileType)) {
+      } else if (fileIntent.fileType === "image") {
+        formatGuide =
+          "\n\nCRITICAL OUTPUT RULE: The user wants to generate an image. Provide a vivid, evocative 2-3 sentence visual description of the artwork (composition, lighting, style, colors, and subject matter) to accompany the generated visual piece. Do NOT say you cannot generate images.";
+      } else if (fileIntent.fileType === "md") {
+        formatGuide =
+          "\n\nCRITICAL OUTPUT RULE: Output the complete content for the Markdown (.md) document directly. " +
+          "Start with a top-level '# [Document Title]', followed by structured sections ('## Heading 2', '### Heading 3'), " +
+          "bullet points, formatted tables, blockquotes, and code blocks where relevant. " +
+          "Do NOT include conversational preamble ('Here is your markdown file...'), conversion steps, or closing chatter. " +
+          "Do NOT wrap the entire output in an outer ```markdown code block; output the raw markdown text directly.";
+      } else if (["pdf", "docx", "txt"].includes(fileIntent.fileType)) {
         // For document formats: output ONLY the document body — no meta-commentary,
         // no "here are the steps", no "I will now create..." preamble.
         formatGuide =
           `\n\nCRITICAL OUTPUT RULE: Output ONLY the actual document content (the body of the ${fileIntent.fileType.toUpperCase()} you are creating). ` +
           "Do NOT include any preamble, meta-commentary, instructions, conversion steps, or descriptions of what you are doing. " +
-          "Do NOT write sentences like 'I will create...', 'Here is your document', 'Step 1:', 'Converting to PDF...', etc. " +
+          "Do NOT write sentences like 'I will create...', 'Here is your document', 'Step 1:', etc. " +
           "Start directly with the document title or first section heading. " +
           "Use rich markdown formatting: # for headings, ## for sections, ### for subsections, - for bullets, **bold**, *italic*, ``` for code blocks.";
       }
@@ -575,6 +597,10 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
                       headers = table.headers;
                       rows = table.rows;
                     }
+                  } else if (fileIntent.fileType === "image") {
+                    genContent = fileIntent.title || message.trim() || genContent;
+                  } else if (fileIntent.fileType === "md") {
+                    genContent = FileIntentService.cleanMarkdownContent(genContent, fileIntent.title);
                   } else if (
                     ["py", "js", "ts", "html", "css", "json", "yaml", "sql", "java", "cpp"].includes(
                       fileIntent.fileType
