@@ -112,6 +112,19 @@ async def run_ingestion_pipeline(
         else:
             # File on disk
             if not os.path.exists(target):
+                from pathlib import Path
+                filename = os.path.basename(target)
+                root = Path(__file__).resolve().parents[3]
+                candidates = [
+                    root / "apps" / "api" / "storage" / filename,
+                    root / "storage" / filename,
+                ]
+                for c in candidates:
+                    if c.exists():
+                        target = str(c)
+                        break
+
+            if not os.path.exists(target):
                 raise FileNotFoundError(f"File not found: {target}")
 
             with open(target, "rb") as f:

@@ -1,8 +1,8 @@
 """
 app/services/image_generator.py
 ===============================
-Image generation service using Replicate (Flux Schnell) with automatic resilient fallback.
-Generates high-fidelity visual artwork from natural language prompts.
+Image generation service with Cloudflare Workers AI (primary), Replicate, and Pollinations fallback.
+Priority: Cloudflare Flux → Replicate Flux Schnell → Pollinations Flux → SVG placeholder.
 """
 
 from __future__ import annotations
@@ -18,11 +18,14 @@ from app.core.logging import logger
 
 class ImageGenerator:
     """
-    Service for generating images via Replicate's Flux model, with graceful fallback.
+    Service for generating images with Cloudflare Workers AI as primary,
+    Replicate Flux Schnell as secondary, and Pollinations as resilient fallback.
     """
 
     REPLICATE_URL = "https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions"
     POLLINATIONS_URL = "https://image.pollinations.ai/prompt"
+    CF_BASE = "https://api.cloudflare.com/client/v4/accounts"
+    CF_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
     @classmethod
     async def generate_image(
@@ -37,6 +40,11 @@ class ImageGenerator:
             (image_bytes, mime_type, metadata_dict)
         """
         settings = get_settings()
+        if not settings.CLOUDFLARE_API_TOKEN or not settings.CLOUDFLARE_ACCOUNT_ID:
+            from app.core.config import reset_settings
+            reset_settings()
+            settings = get_settings()
+
         clean_prompt = prompt.strip()
         if not clean_prompt:
             clean_prompt = "A high-quality digital masterpiece"
@@ -45,9 +53,94 @@ class ImageGenerator:
         if len(clean_prompt) > 1000:
             clean_prompt = clean_prompt[:1000]
 
+        cf_token = settings.CLOUDFLARE_API_TOKEN.strip() if settings.CLOUDFLARE_API_TOKEN else ""
+        cf_acct = settings.CLOUDFLARE_ACCOUNT_ID.strip() if settings.CLOUDFLARE_ACCOUNT_ID else ""
+
+        # Direct fallback from os.environ or .env files if pydantic singleton was cached in running process
+        if not cf_token or not cf_acct:
+            import os
+            from pathlib import Path
+            cf_token = cf_token or os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
+            cf_acct = cf_acct or os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+            if not cf_token or not cf_acct:
+                for env_candidate in (
+                    Path(__file__).resolve().parents[4] / ".env",
+                    Path(__file__).resolve().parents[2] / ".env",
+                ):
+                    if env_candidate.exists():
+                        try:
+                            for eline in env_candidate.read_text(encoding="utf-8").splitlines():
+                                eline = eline.strip()
+                                if eline.startswith("CLOUDFLARE_API_TOKEN="):
+                                    cf_token = cf_token or eline.split("=", 1)[1].strip().strip("\"'")
+                                elif eline.startswith("CLOUDFLARE_ACCOUNT_ID="):
+                                    cf_acct = cf_acct or eline.split("=", 1)[1].strip().strip("\"'")
+                        except Exception:
+                            pass
+
         replicate_key = settings.REPLICATE_API_KEY.strip() if settings.REPLICATE_API_KEY else ""
 
-        # 1. Attempt Replicate (Flux Schnell) if API key is provided
+        # 1. Cloudflare Workers AI — Flux 1 Schnell (primary, free tier)
+        if cf_token and cf_acct:
+            cf_models_to_try = [
+                cls.CF_IMAGE_MODEL,
+                "@cf/black-forest-labs/flux-2-klein-4b",
+                "@cf/leonardo/phoenix-1.0",
+            ]
+            for current_cf_model in cf_models_to_try:
+                try:
+                    cf_url = f"{cls.CF_BASE}/{cf_acct}/ai/run/{current_cf_model}"
+                    cf_headers = {
+                        "Authorization": f"Bearer {cf_token}",
+                        "Content-Type": "application/json",
+                    }
+                    cf_payload = {"prompt": clean_prompt, "steps": 4}
+                    timeout = httpx.Timeout(connect=15.0, read=90.0, write=15.0, pool=15.0)
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        cf_resp = await client.post(cf_url, json=cf_payload, headers=cf_headers)
+                        if cf_resp.status_code == 200:
+                            content_type = cf_resp.headers.get("content-type", "")
+                            if "application/json" in content_type:
+                                data = cf_resp.json()
+                                result = data.get("result", data)
+                                b64_img = result.get("image") if isinstance(result, dict) else None
+                                if b64_img:
+                                    img_bytes = base64.b64decode(b64_img)
+                                    if len(img_bytes) > 100:
+                                        mime = "image/jpeg" if img_bytes.startswith(b"\xff\xd8") else "image/png"
+                                        logger.info(f"Generated image via Cloudflare ({current_cf_model}, {len(img_bytes)} bytes)")
+                                        return (
+                                            img_bytes,
+                                            mime,
+                                            {
+                                                "engine": f"cloudflare/{current_cf_model.split('/')[-1]}",
+                                                "model": current_cf_model,
+                                                "prompt": clean_prompt,
+                                                "status": "ready",
+                                            },
+                                        )
+                            elif len(cf_resp.content) > 100:
+                                img_bytes = cf_resp.content
+                                mime = "image/jpeg" if img_bytes.startswith(b"\xff\xd8") else "image/png"
+                                logger.info(f"Generated image via Cloudflare ({current_cf_model}, {len(img_bytes)} bytes)")
+                                return (
+                                    img_bytes,
+                                    mime,
+                                    {
+                                        "engine": f"cloudflare/{current_cf_model.split('/')[-1]}",
+                                        "model": current_cf_model,
+                                        "prompt": clean_prompt,
+                                        "status": "ready",
+                                    },
+                                )
+                        else:
+                            logger.warning(
+                                f"Cloudflare model {current_cf_model} returned {cf_resp.status_code}: {cf_resp.text[:150]}. Trying next."
+                            )
+                except Exception as cf_exc:
+                    logger.warning(f"Cloudflare generation with {current_cf_model} failed ({cf_exc}). Trying next.")
+
+        # 2. Attempt Replicate (Flux Schnell) if API key is provided
         if replicate_key:
             try:
                 headers = {

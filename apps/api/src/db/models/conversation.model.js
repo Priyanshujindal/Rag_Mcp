@@ -31,6 +31,15 @@ const conversationSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    visitorId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
   },
   {
     timestamps: true,

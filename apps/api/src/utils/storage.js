@@ -33,6 +33,17 @@ export const storage = {
   },
 
   /**
+   * Resolves the absolute disk path for a given fileKey
+   * @param {string} fileKey
+   * @returns {string}
+   */
+  getFilePath(fileKey) {
+    if (!fileKey) return null;
+    const filename = path.basename(fileKey);
+    return path.join(STORAGE_DIR, filename);
+  },
+
+  /**
    * Deletes a file by its key
    * @param {string} fileKey
    */

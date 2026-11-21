@@ -23,6 +23,7 @@ export default function ChatCanvas() {
       const storedProvider = localStorage.getItem("ragmcp_provider");
       const storedModel = localStorage.getItem("ragmcp_model");
       if (storedModel) return storedModel;
+      if (storedProvider === "cloudflare") return "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
       if (storedProvider === "groq") return "qwen/qwen3.8-27b";
       return storedProvider === "openrouter"
         ? "nvidia/nemotron-3-ultra-550b-a55b:free"
@@ -38,7 +39,13 @@ export default function ChatCanvas() {
       localStorage.setItem("ragmcp_provider", newProvider);
     } catch {}
 
-    if (newProvider === "groq") {
+    if (newProvider === "cloudflare") {
+      const defaultModel = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+      setSelectedModel(defaultModel);
+      try {
+        localStorage.setItem("ragmcp_model", defaultModel);
+      } catch {}
+    } else if (newProvider === "groq") {
       const defaultModel = "qwen/qwen3.8-27b";
       setSelectedModel(defaultModel);
       try {
@@ -65,6 +72,8 @@ export default function ChatCanvas() {
       localStorage.setItem("ragmcp_model", newModel);
     } catch {}
 
+    const isCloudflareModel = newModel.startsWith("@cf/");
+
     const isGroqModel =
       newModel.includes("qwen/") ||
       newModel.includes("gpt-oss") ||
@@ -75,7 +84,13 @@ export default function ChatCanvas() {
       newModel.includes("openrouter/") ||
       newModel.includes("google/gemma");
 
-    const inferredProvider = isGroqModel ? "groq" : isOpenRouterModel ? "openrouter" : "gemini";
+    const inferredProvider = isCloudflareModel
+      ? "cloudflare"
+      : isGroqModel
+      ? "groq"
+      : isOpenRouterModel
+      ? "openrouter"
+      : "gemini";
     if (inferredProvider !== selectedProvider) {
       setSelectedProvider(inferredProvider);
       try {

@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     CRAWL_MAX_DEPTH: int = Field(default=3, ge=1, description="Max link depth")
     MAX_FILE_MB: int = Field(default=10, ge=1, description="Max file size in MB")
     MAX_CHUNKS_PER_WORKSPACE: int = Field(default=5000, ge=1, description="Max chunks per workspace")
-    ESTIMATED_DB_CAPACITY_MB: int = Field(default=400, ge=1, description="Estimated DB storage budget in MB")
+    ESTIMATED_DB_CAPACITY_MB: int = Field(default=512, ge=1, description="Estimated DB storage budget in MB")
 
     # External Provider Keys
     GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key")
@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = Field(default="", description="OpenRouter API key")
     GROQ_API_KEY: str = Field(default="", description="Groq API key")
     REPLICATE_API_KEY: str = Field(default="", description="Replicate API key")
+    CLOUDFLARE_ACCOUNT_ID: str = Field(default="", description="Cloudflare Workers AI account ID")
+    CLOUDFLARE_API_TOKEN: str = Field(default="", description="Cloudflare Workers AI API token")
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434", description="Ollama server endpoint")
 
     # Server settings

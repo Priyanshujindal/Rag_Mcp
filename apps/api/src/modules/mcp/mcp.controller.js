@@ -1,9 +1,19 @@
 import mcpManager from "./mcp.manager.js";
+import { McpOrchestrator } from "./mcp.orchestrator.js";
 
 export const mcpController = {
+  async listTools(req, res, next) {
+    try {
+      const tools = await McpOrchestrator.getActiveTools(req.workspaceId, req.user?.id);
+      res.status(200).json({ success: true, tools });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async list(req, res, next) {
     try {
-      const result = await mcpManager.list(req.workspaceId);
+      const result = await mcpManager.list(req.workspaceId, req.user?.id);
       res.status(200).json(result);
     } catch (err) {
       next(err);
@@ -21,7 +31,7 @@ export const mcpController = {
 
   async create(req, res, next) {
     try {
-      const result = await mcpManager.create(req.workspaceId, req.body);
+      const result = await mcpManager.create(req.workspaceId, req.user?.id, req.body);
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -46,6 +56,24 @@ export const mcpController = {
     }
   },
 
+  async refreshTools(req, res, next) {
+    try {
+      const result = await mcpManager.refreshTools(req.workspaceId, req.params.id);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async testConnection(req, res, next) {
+    try {
+      const result = await mcpManager.testConnection(req.workspaceId, req.params.id || null, req.body);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async toggleTool(req, res, next) {
     try {
       const result = await mcpManager.toggleTool(
@@ -59,7 +87,15 @@ export const mcpController = {
       next(err);
     }
   },
+
+  async listExecutions(req, res, next) {
+    try {
+      const result = await mcpManager.listExecutions(req.workspaceId, req.query.limit);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
 };
 
 export default mcpController;
-

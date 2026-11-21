@@ -1,0 +1,77 @@
+{
+  "timestamp": "2026-11-21T09:46:33.595019+00:00",
+  "dataset": "qa-pairs.json",
+  "knowledgeBaseId": "6aec3f9431f96d832ca52ba4",
+  "total_queries": 4,
+  "hit_rate_at_k": 0.5,
+  "mrr": 0.375,
+  "avg_faithfulness": 0.5,
+  "avg_relevance": 0.598,
+  "report_file": "C:\\Users\\DELL\\OneDrive\\Desktop\\Rag_Mcp\\services\\ai-service\\evals\\reports\\eval_1795254393.json",
+  "results": [
+    {
+      "id": "q1",
+      "question": "What is the primary architecture and system purpose described in the knowledge base?",
+      "hit": false,
+      "first_hit_rank": null,
+      "reciprocal_rank": 0.0,
+      "faithfulness_score": 0.5,
+      "relevance_score": 0.556,
+      "retrieved_chunk_ids": [
+        "6aec413982f20a6f9979b601",
+        "6aec413982f20a6f9979b5fb",
+        "6aec413982f20a6f9979b5f7",
+        "6aec413982f20a6f9979b600",
+        "6aec413982f20a6f9979b602"
+      ]
+    },
+    {
+      "id": "q2",
+      "question": "How is authentication, authorization, or access control managed?",
+      "hit": true,
+      "first_hit_rank": 2,
+      "reciprocal_rank": 0.5,
+      "faithfulness_score": 0.5,
+      "relevance_score": 0.5,
+      "retrieved_chunk_ids": [
+        "6aec413982f20a6f9979b709",
+        "6aec413982f20a6f9979b668",
+        "6aec413982f20a6f9979b691",
+        "6aec413982f20a6f9979b70a",
+        "6aec413982f20a6f9979b710"
+      ]
+    },
+    {
+      "id": "q3",
+      "question": "What are the core technical workflows, indexing steps, or data pipelines?",
+      "hit": true,
+      "first_hit_rank": 1,
+      "reciprocal_rank": 1.0,
+      "faithfulness_score": 0.5,
+      "relevance_score": 0.556,
+      "retrieved_chunk_ids": [
+        "6aec413882f20a6f9979b513",
+        "6aec413882f20a6f9979b511",
+        "6aec413882f20a6f9979b519",
+        "6aec413882f20a6f9979b522",
+        "6aec413882f20a6f9979b517"
+      ]
+    },
+    {
+      "id": "q4",
+      "question": "What error handling, fallback strategies, or rate limiting mechanisms are in place?",
+      "hit": false,
+      "first_hit_rank": null,
+      "reciprocal_rank": 0.0,
+      "faithfulness_score": 0.5,
+      "relevance_score": 0.778,
+      "retrieved_chunk_ids": [
+        "6aec413882f20a6f9979b50f",
+        "6aec413882f20a6f9979b57f",
+        "6aec413882f20a6f9979b493",
+        "6aec413882f20a6f9979b491",
+        "6aec413882f20a6f9979b50e"
+      ]
+    }
+  ]
+}

@@ -15,23 +15,47 @@ from app.llm.providers.openai import OpenAILLMProvider
 from app.llm.providers.ollama import OllamaLLMProvider
 from app.llm.providers.openrouter import OpenRouterLLMProvider
 from app.llm.providers.groq import GroqLLMProvider
+from app.llm.providers.cloudflare import CloudflareLLMProvider
 
 _gemini_instance: Optional[GeminiLLMProvider] = None
 _openai_instance: Optional[OpenAILLMProvider] = None
 _ollama_instance: Optional[OllamaLLMProvider] = None
 _openrouter_instance: Optional[OpenRouterLLMProvider] = None
 _groq_instance: Optional[GroqLLMProvider] = None
+_cloudflare_instance: Optional[CloudflareLLMProvider] = None
 
 
 def get_llm_provider(model: Optional[str] = None, provider: Optional[str] = None) -> BaseLLMProvider:
     """
     Selects and returns an LLM provider instance based on provider name, model prefix, or available credentials.
     """
-    global _gemini_instance, _openai_instance, _ollama_instance, _openrouter_instance, _groq_instance
+    global _gemini_instance, _openai_instance, _ollama_instance, _openrouter_instance, _groq_instance, _cloudflare_instance
     settings = get_settings()
 
     prov_lower = (provider or "").lower().strip()
     model_lower = (model or "").lower().strip()
+
+    # Cloudflare explicit provider or @cf/ model prefix
+    if prov_lower == "cloudflare" or model_lower.startswith("@cf/"):
+        if not settings.CLOUDFLARE_API_TOKEN or not settings.CLOUDFLARE_ACCOUNT_ID:
+            from app.core.config import reset_settings
+            reset_settings()
+            settings = get_settings()
+
+        if not settings.CLOUDFLARE_API_TOKEN or not settings.CLOUDFLARE_ACCOUNT_ID:
+            raise ValueError(
+                f"Cloudflare requested ('{model}'), but CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not configured."
+            )
+        if (
+            _cloudflare_instance is None
+            or _cloudflare_instance.api_token != settings.CLOUDFLARE_API_TOKEN
+            or _cloudflare_instance.account_id != settings.CLOUDFLARE_ACCOUNT_ID
+        ):
+            _cloudflare_instance = CloudflareLLMProvider(
+                api_token=settings.CLOUDFLARE_API_TOKEN,
+                account_id=settings.CLOUDFLARE_ACCOUNT_ID,
+            )
+        return _cloudflare_instance
 
     # Groq explicit provider or Groq models
     if prov_lower == "groq" or any(prefix in model_lower for prefix in ("qwen/", "openai/gpt-oss", "allam", "groq/")):
@@ -94,11 +118,19 @@ def get_llm_provider(model: Optional[str] = None, provider: Optional[str] = None
             _ollama_instance = OllamaLLMProvider(base_url=settings.OLLAMA_BASE_URL)
         return _ollama_instance
 
-    # Default fallback: prefer Gemini, then Groq, then OpenRouter, then OpenAI
+    # Default fallback: prefer Gemini, then Cloudflare, then Groq, then OpenRouter, then OpenAI
     if settings.GEMINI_API_KEY:
         if _gemini_instance is None:
             _gemini_instance = GeminiLLMProvider(api_key=settings.GEMINI_API_KEY)
         return _gemini_instance
+
+    if settings.CLOUDFLARE_API_TOKEN and settings.CLOUDFLARE_ACCOUNT_ID:
+        if _cloudflare_instance is None:
+            _cloudflare_instance = CloudflareLLMProvider(
+                api_token=settings.CLOUDFLARE_API_TOKEN,
+                account_id=settings.CLOUDFLARE_ACCOUNT_ID,
+            )
+        return _cloudflare_instance
 
     if settings.GROQ_API_KEY:
         if _groq_instance is None:
@@ -123,9 +155,10 @@ def get_llm_provider(model: Optional[str] = None, provider: Optional[str] = None
 
 def reset_llm_providers() -> None:
     """Reset cached provider singletons (for tests)."""
-    global _gemini_instance, _openai_instance, _ollama_instance, _openrouter_instance, _groq_instance
+    global _gemini_instance, _openai_instance, _ollama_instance, _openrouter_instance, _groq_instance, _cloudflare_instance
     _gemini_instance = None
     _openai_instance = None
     _ollama_instance = None
     _openrouter_instance = None
     _groq_instance = None
+    _cloudflare_instance = None

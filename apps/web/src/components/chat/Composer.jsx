@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from "react";
-import { Plus, Brain, Globe, Mic, ArrowUp, Paperclip, FileText, Loader2, X } from "lucide-react";
+import { Plus, Brain, Globe, Mic, ArrowUp, Paperclip, FileText, Loader2, X, Plug } from "lucide-react";
 import { parseDocumentFile, parseDocumentFiles } from "@/lib/api/chat";
 
 /**
@@ -223,6 +223,16 @@ export function Composer({
             <Globe size={13} />
             <span>Search</span>
           </button>
+
+          <a
+            href="/apps"
+            className="chatgpt-think-badge chatgpt-search-badge active"
+            title="Connected Apps & Tools: Gmail, Google Drive, Notion, GitHub, Slack active. Click to manage."
+            style={{ textDecoration: "none", color: "#38bdf8", borderColor: "rgba(56, 189, 248, 0.3)", background: "rgba(56, 189, 248, 0.12)" }}
+          >
+            <Plug size={13} />
+            <span>Tools</span>
+          </a>
 
           <button
             type="button"

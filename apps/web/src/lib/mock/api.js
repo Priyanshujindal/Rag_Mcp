@@ -71,6 +71,66 @@ export async function getMockUsageMetrics() {
   return state.usageMetrics;
 }
 
+export async function getUsageOverview() {
+  await delay();
+  return {
+    plan: {
+      id: "developer",
+      name: "Developer Plan (Local)",
+      description: "Local development limits",
+      isBillingActive: false,
+      period: {
+        type: "month",
+        start: new Date(Date.now() - 30 * 86400000).toISOString(),
+        end: new Date().toISOString(),
+        resetAt: new Date(Date.now() + 15 * 86400000).toISOString(),
+      },
+    },
+    metrics: {
+      chatRequests: { key: "chatRequests", label: "AI Chat Requests", used: 124, limit: 5000, remaining: 4876, percentConsumed: 2, status: "normal", unit: "requests" },
+      aiTokens: { key: "aiTokens", label: "AI Tokens Consumed", used: 412000, limit: 2000000, remaining: 1588000, percentConsumed: 21, status: "normal", unit: "tokens" },
+      knowledgeBases: { key: "knowledgeBases", label: "Knowledge Bases", used: 2, limit: 10, remaining: 8, percentConsumed: 20, status: "normal", unit: "KBs" },
+      documents: { key: "documents", label: "Document Sources", used: 14, limit: 100, remaining: 86, percentConsumed: 14, status: "normal", unit: "documents" },
+      storage: { key: "storage", label: "Storage Space", used: 2.69, limit: 50, remaining: 47.31, percentConsumed: 5, status: "normal", unit: "MB" },
+      chatbots: { key: "chatbots", label: "Chatbots", used: 3, limit: 20, remaining: 17, percentConsumed: 15, status: "normal", unit: "chatbots" },
+      publicApiRequests: { key: "publicApiRequests", label: "Public API Requests", used: 85, limit: 10000, remaining: 9915, percentConsumed: 1, status: "normal", unit: "requests" },
+      mcpToolCalls: { key: "mcpToolCalls", label: "MCP Tool Executions", used: 48, limit: 2000, remaining: 1952, percentConsumed: 2, status: "normal", unit: "executions" },
+      mcpServers: { key: "mcpServers", label: "MCP Servers", used: 2, limit: 20, remaining: 18, percentConsumed: 10, status: "normal", unit: "servers" },
+      fileGenerations: { key: "fileGenerations", label: "File & Deck Generations", used: 6, limit: 500, remaining: 494, percentConsumed: 1, status: "normal", unit: "files" },
+    },
+    warnings: [],
+    storageDetails: { usedMb: 2.69, limitMb: 50, sourceCharBytes: 1500000, artifactBytes: 2500000, aiCachedMb: 38 },
+  };
+}
+
+export async function getUsageLimits() {
+  const overview = await getUsageOverview();
+  return { plan: overview.plan, limits: overview.metrics, warnings: overview.warnings };
+}
+
+export async function getUsageAnalytics() {
+  await delay();
+  return {
+    dailyMetrics: state.usageMetrics || [],
+    breakdown: {
+      providers: [{ provider: "google", requests: 110, tokens: 380000 }, { provider: "openrouter", requests: 14, tokens: 32000 }],
+      models: [{ model: "gemini-3.8-flash", requests: 110, tokens: 380000 }, { model: "anthropic/claude-3-haiku", requests: 14, tokens: 32000 }],
+    },
+  };
+}
+
+export async function getUsageHistory() {
+  await delay();
+  return {
+    data: [
+      { id: "ev_1", eventType: "ai.chat", category: "ai", status: "success", tokens: { totalTokens: 1450 }, model: "gemini-3.8-flash", durationMs: 420, createdAt: new Date().toISOString() },
+      { id: "ev_2", eventType: "public_api.request", category: "public_api", status: "success", tokens: { totalTokens: 820 }, durationMs: 310, createdAt: new Date(Date.now() - 3600000).toISOString() },
+      { id: "ev_3", eventType: "document.upload", category: "storage", status: "success", storageBytes: 524288, createdAt: new Date(Date.now() - 7200000).toISOString() },
+    ],
+    pagination: { page: 1, limit: 50, total: 3, totalPages: 1 },
+  };
+}
+
 export async function getMockEvalRuns() {
   await delay();
   return state.evalRuns;
@@ -401,6 +461,41 @@ export async function createApiKey(data) {
   };
 }
 
+export async function rotateApiKey(id) {
+  await delay();
+  const key = state.apiKeys.find((k) => k.id === id);
+  const rand = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+  const isPub = key?.keyType === "publishable";
+  const prefix = isPub ? "rag_pk_live_" : "rag_sk_live_";
+  const secret = `${prefix}${rand}`;
+  if (key) {
+    key.prefix = prefix;
+    key.maskedKey = `${prefix}${"•".repeat(12)}${rand.slice(-4)}`;
+    key.status = "active";
+    key.revokedAt = null;
+  }
+  return { apiKey: key, secret };
+}
+
+export async function updateApiKey(id, data) {
+  await delay();
+  const key = state.apiKeys.find((k) => k.id === id);
+  if (key) {
+    Object.assign(key, data);
+  }
+  return key;
+}
+
+export async function getApiKeyUsage(id) {
+  await delay();
+  const key = state.apiKeys.find((k) => k.id === id);
+  return {
+    summary: key?.usage || { totalRequests: 42, successfulRequests: 41, totalInputTokens: 1200, totalOutputTokens: 850 },
+    lastUsedAt: key?.lastUsedAt || new Date().toISOString(),
+    recentLogs: [],
+  };
+}
+
 export async function revokeApiKey(id) {
   await delay();
   const key = state.apiKeys.find((k) => k.id === id);
@@ -448,6 +543,70 @@ export async function toggleMcpTool(serverId, toolName, { enabled, requiresAppro
   return { success: true, tool: updatedTool };
 }
 
+export async function updateMcpServer(id, data) {
+  await delay();
+  const server = state.mcpServers.find((s) => s.id === id);
+  if (server) {
+    Object.assign(server, data);
+  }
+  return server || { id, ...data };
+}
+
+export async function deleteMcpServer(id) {
+  await delay();
+  state.mcpServers = state.mcpServers.filter((s) => s.id !== id);
+  return { success: true };
+}
+
+export async function refreshMcpTools(id) {
+  await delay();
+  const server = state.mcpServers.find((s) => s.id === id);
+  return server || { id, tools: [] };
+}
+
+export async function testMcpConnection(_id, _data) {
+  await delay();
+  return {
+    success: true,
+    toolCount: 5,
+    resourceCount: 2,
+    promptCount: 1,
+    tools: [
+      { name: "execute_readonly_sql", description: "Database SQL query" },
+      { name: "calculate_metrics", description: "Calculates KPIs" },
+    ],
+  };
+}
+
+export async function getMcpExecutions() {
+  await delay();
+  return [
+    {
+      id: "exec_1",
+      toolName: "calculate_metrics",
+      serverName: "Builtin System Tools",
+      status: "success",
+      durationMs: 42,
+      createdAt: new Date().toISOString(),
+      args: { expression: "(4800 + 1200 + 9600) / 3" },
+      resultSummary: '{"metric":"Calculation","value":5200}',
+    },
+  ];
+}
+
+export async function getActiveMcpTools() {
+  await delay();
+  return [
+    { name: "execute_readonly_sql", serverName: "Builtin System Tools", description: "Read-only SQL queries" },
+    { name: "calculate_metrics", serverName: "Builtin System Tools", description: "Evaluate mathematical operations" },
+    { name: "read_file_snippet", serverName: "Builtin System Tools", description: "Read file lines" },
+    { name: "gmail.search_emails", serverName: "Gmail", description: "Search Gmail messages", isAppIntegration: true },
+    { name: "google_drive.search_files", serverName: "Google Drive", description: "Search Drive files", isAppIntegration: true },
+    { name: "github.list_repositories", serverName: "GitHub", description: "List repositories", isAppIntegration: true },
+    { name: "notion.search", serverName: "Notion", description: "Search Notion workspace", isAppIntegration: true },
+  ];
+}
+
 export async function getSourceChunks(_sourceId, page = 1, limit = 5) {
   await delay();
   return {
@@ -455,3 +614,105 @@ export async function getSourceChunks(_sourceId, page = 1, limit = 5) {
     pagination: { page, limit, total: 0, totalPages: 0 },
   };
 }
+
+export async function getIntegrationsCatalog() {
+  await delay();
+  return [
+    {
+      id: "gmail",
+      name: "Gmail",
+      description: "Search, read, summarize, draft, and send emails through your Google Workspace account.",
+      category: "Email",
+      icon: "Mail",
+      status: "available",
+      isConnected: false,
+      capabilities: ["Search emails", "Read threads", "Draft replies", "Send emails"],
+      tools: [{ name: "search_emails" }, { name: "get_email" }, { name: "send_email", writeOperation: true }],
+    },
+    {
+      id: "google_drive",
+      name: "Google Drive",
+      description: "Search files, read document contents, summarize spreadsheets, and create files.",
+      category: "Storage & Docs",
+      icon: "HardDrive",
+      status: "available",
+      isConnected: false,
+      capabilities: ["Search Drive", "Read Docs/Sheets", "Create files"],
+      tools: [{ name: "search_files" }, { name: "read_file_content" }, { name: "create_file", writeOperation: true }],
+    },
+    {
+      id: "github",
+      name: "GitHub",
+      description: "Inspect repositories, search code, read files, review pull requests, and manage issues.",
+      category: "Development",
+      icon: "Github",
+      status: "available",
+      isConnected: false,
+      capabilities: ["List repositories", "Search code", "Read files", "Create issues"],
+      tools: [{ name: "list_repositories" }, { name: "read_file" }, { name: "search_code" }],
+    },
+    {
+      id: "notion",
+      name: "Notion",
+      description: "Search workspace pages, inspect databases, read project documentation, and create pages.",
+      category: "Knowledge & Docs",
+      icon: "FileText",
+      status: "available",
+      isConnected: false,
+      capabilities: ["Search workspace", "Read pages", "Create pages"],
+      tools: [{ name: "search" }, { name: "get_page" }, { name: "create_page", writeOperation: true }],
+    },
+    {
+      id: "slack",
+      name: "Slack",
+      description: "Search workspace discussions, read channel message history, and post messages.",
+      category: "Communication",
+      icon: "MessageSquare",
+      status: "available",
+      isConnected: false,
+      capabilities: ["Search messages", "Read channels", "Send messages"],
+      tools: [{ name: "search_messages" }, { name: "send_message", writeOperation: true }],
+    },
+  ];
+}
+
+export async function getConnectedAccounts() {
+  await delay();
+  return [];
+}
+
+export async function authorizeIntegration(id) {
+  await delay();
+  return { authUrl: `https://example.com/oauth/${id}`, state: "mock_state" };
+}
+
+export async function callbackIntegration(id) {
+  await delay();
+  return { success: true };
+}
+
+export async function connectIntegrationToken(data) {
+  await delay();
+  return { success: true, connection: { id: "mock_conn_1", ...data } };
+}
+
+export async function demoConnectIntegration(id, data = {}) {
+  await delay();
+  return { success: true, connection: { id: `mock_conn_${id}`, ...data } };
+}
+
+export async function updateConnectedAccount(id, data) {
+  await delay();
+  return { success: true, id, ...data };
+}
+
+export async function testConnectedAccount() {
+  await delay();
+  return { status: "healthy", message: "Connected successfully." };
+}
+
+export async function disconnectAccount(id) {
+  await delay();
+  return { success: true, id };
+}
+

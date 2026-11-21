@@ -9,13 +9,12 @@ class IngestRequest(BaseModel):
     sourceId: PyObjectId = Field(..., description="Target source ObjectId")
     url: Optional[str] = Field(default=None, description="URL to crawl and ingest")
     filePath: Optional[str] = Field(default=None, description="Path to file on disk to ingest")
+    fileKey: Optional[str] = Field(default=None, description="Key of file in storage")
 
     @model_validator(mode="after")
     def validate_target(self) -> "IngestRequest":
-        if not self.url and not self.filePath:
-            raise ValueError("Either 'url' or 'filePath' must be provided.")
-        if self.url and self.filePath:
-            raise ValueError("Provide either 'url' or 'filePath', not both.")
+        if not self.url and not self.filePath and not self.fileKey:
+            raise ValueError("Either 'url', 'filePath', or 'fileKey' must be provided.")
         return self
 
 

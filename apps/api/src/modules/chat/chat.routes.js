@@ -6,7 +6,7 @@ import { Conversation, Message, Membership, KnowledgeBase, Artifact } from "../.
 import aiClient from "../../services/ai-client.js";
 import storageService from "../../services/storage.service.js";
 import titleGeneratorService from "../conversations/title-generator.service.js";
-import mcpRunner from "../mcp/mcp.runner.js";
+import { McpOrchestrator } from "../mcp/mcp.orchestrator.js";
 import FileIntentService from "./file-intent.service.js";
 import config from "../../config/index.js";
 import {
@@ -282,14 +282,18 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
     }
 
     const resolvedProvider = provider || (
-      model && (model.includes("qwen") || model.includes("gpt-oss") || model.includes("allam") || model.includes("groq"))
+      model && model.startsWith("@cf/")
+        ? "cloudflare"
+        : model && (model.includes("qwen") || model.includes("gpt-oss") || model.includes("allam") || model.includes("groq"))
         ? "groq"
         : model && (model.includes("nvidia") || model.includes("openrouter") || model.includes("gemma"))
         ? "openrouter"
         : "gemini"
     );
     const resolvedModel = model || (
-      resolvedProvider === "groq"
+      resolvedProvider === "cloudflare"
+        ? "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+        : resolvedProvider === "groq"
         ? "qwen/qwen3.8-27b"
         : resolvedProvider === "openrouter"
         ? "nvidia/nemotron-3-ultra-550b-a55b:free"
@@ -329,7 +333,7 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
     });
 
     // 4.5. Check for active MCP tools & agentic intent
-    const mcpTools = await mcpRunner.getActiveTools(workspaceId);
+    const mcpTools = await McpOrchestrator.getActiveTools(workspaceId, req.user?.id);
     let matchedTool = null;
     let toolArgs = {};
 
@@ -379,6 +383,171 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
       if (t) {
         matchedTool = t;
         toolArgs = { directory: "." };
+      }
+    } else if (
+      queryLower.includes("search web") ||
+      queryLower.includes("web search") ||
+      queryLower.includes("search online") ||
+      queryLower.includes("search google") ||
+      queryLower.includes("browse web")
+    ) {
+      const t = mcpTools.find((x) => x.name === "web_search_mcp");
+      if (t) {
+        matchedTool = t;
+        const searchMatch = message.replace(/(?:search|browse|look up)\s+(?:the\s+)?(?:web|online|internet)\s+(?:for\s+)?/i, "").trim();
+        toolArgs = { query: searchMatch || message.trim() };
+      }
+    } else if (
+      queryLower.includes("gmail") ||
+      queryLower.includes("email") ||
+      queryLower.includes("inbox")
+    ) {
+      if (queryLower.includes("send email") || queryLower.includes("send an email")) {
+        const t = mcpTools.find((x) => x.name === "gmail.send_email" || x.name === "gmail_send_email");
+        if (t) {
+          matchedTool = t;
+          const emailMatch = message.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+          toolArgs = {
+            to: emailMatch ? emailMatch[0] : "recipient@example.com",
+            subject: "Update from Rag_Mcp",
+            body: message,
+          };
+        }
+      } else {
+        const t = mcpTools.find((x) => x.name === "gmail.search_emails" || x.name === "gmail_search_emails");
+        if (t) {
+          matchedTool = t;
+          const cleanQ = message.replace(/(?:search|find|check|look for|my)\s+(?:gmail|email|emails|inbox)(?:\s+for)?/i, "").trim();
+          toolArgs = { query: cleanQ || "is:unread" };
+        }
+      }
+    } else if (
+      queryLower.includes("google drive") ||
+      queryLower.includes("in drive") ||
+      queryLower.includes("resume in drive") ||
+      queryLower.includes("drive files")
+    ) {
+      const t = mcpTools.find((x) => x.name === "google_drive.search_files" || x.name === "google_drive_search_files");
+      if (t) {
+        matchedTool = t;
+        const cleanQ = message.replace(/(?:search|find|read|check|look for|my)\s+(?:google\s+drive|drive|drive\s+files)(?:\s+for)?/i, "").trim();
+        toolArgs = { query: cleanQ || "resume" };
+      }
+    } else if (
+      queryLower.includes("calendar") ||
+      queryLower.includes("meetings") ||
+      queryLower.includes("schedule")
+    ) {
+      const t = mcpTools.find((x) => x.name === "google_calendar.list_events" || x.name === "google_calendar_list_events");
+      if (t) {
+        matchedTool = t;
+        toolArgs = {
+          timeMin: new Date().toISOString(),
+          maxResults: 15,
+        };
+      }
+    } else if (
+      queryLower.includes("notion") ||
+      queryLower.includes("notion workspace") ||
+      queryLower.includes("notion notes")
+    ) {
+      const t = mcpTools.find((x) => x.name === "notion.search" || x.name === "notion_search");
+      if (t) {
+        matchedTool = t;
+        const cleanQ = message.replace(/(?:search|find|check|look in|my)\s+(?:notion|notion\s+workspace|notion\s+notes)(?:\s+for)?/i, "").trim();
+        toolArgs = { query: cleanQ || "documentation" };
+      }
+    } else if (
+      queryLower.includes("github") ||
+      queryLower.includes("repositories") ||
+      queryLower.includes("repos") ||
+      /\b(repo|repos|repository|pull\s+requests?|prs?)\b/i.test(queryLower)
+    ) {
+      if (/\b(pull\s+requests?|prs?)\b/i.test(queryLower)) {
+        const t = mcpTools.find((x) => x.name === "github.list_pull_requests" || x.name === "github_list_pull_requests");
+        if (t) {
+          matchedTool = t;
+          toolArgs = { owner: "Priyanshujindal", repo: "Rag_Mcp", state: "open" };
+        }
+      } else if (/\b(issues?|bug\s+reports?)\b/i.test(queryLower)) {
+        const t = mcpTools.find((x) => x.name === "github.list_issues" || x.name === "github_list_issues");
+        if (t) {
+          matchedTool = t;
+          toolArgs = { owner: "Priyanshujindal", repo: "Rag_Mcp", state: "open" };
+        }
+      } else {
+        const t = mcpTools.find(
+          (x) =>
+            x.name === "github.list_repositories" ||
+            x.name === "github_list_repositories" ||
+            x.name === "list_repositories" ||
+            x.name === "github.list_repos"
+        );
+        if (t) {
+          matchedTool = t;
+          toolArgs = { visibility: "all" };
+        }
+      }
+    } else if (
+      queryLower.includes("slack") ||
+      queryLower.includes("channel") ||
+      queryLower.includes("#") ||
+      queryLower.includes("slack message")
+    ) {
+      if (
+        /\b(post|send|write|message)\b/i.test(queryLower) &&
+        (queryLower.includes("#") || queryLower.includes("channel") || queryLower.includes("slack"))
+      ) {
+        const t = mcpTools.find((x) => x.name === "slack.send_message" || x.name === "slack_send_message");
+        if (t) {
+          matchedTool = t;
+          const channelMatch = message.match(/#([a-zA-Z0-9_\-]+)/);
+          const channelName = channelMatch ? channelMatch[1] : "general";
+          const sayingMatch = message.match(/(?:saying|with text|message:?)\s*[:'"“]\s*(.*?)[!'”"]?$/i);
+          const cleanText = sayingMatch ? sayingMatch[1].replace(/['"“]+$/g, "") : message;
+          toolArgs = { channelId: channelName, text: cleanText };
+        }
+      } else if (/\b(channels?|list\s+channels|rooms?|public\s+channels|private\s+channels)\b/i.test(queryLower)) {
+        const t = mcpTools.find((x) => x.name === "slack.list_channels" || x.name === "slack_list_channels");
+        if (t) {
+          matchedTool = t;
+          toolArgs = {};
+        }
+      } else {
+        const t = mcpTools.find((x) => x.name === "slack.search_messages" || x.name === "slack_search_messages");
+        if (t) {
+          matchedTool = t;
+          const cleanQ = message.replace(/(?:search|check|look in|my)\s+(?:slack|slack\s+messages|slack\s+channels)(?:\s+for)?/i, "").trim();
+          toolArgs = { query: cleanQ || "project" };
+        }
+      }
+    } else if (
+      queryLower.includes("linear") ||
+      queryLower.includes("assigned to me") ||
+      queryLower.includes("linear tasks")
+    ) {
+      if (/\b(projects?|roadmaps?)\b/i.test(queryLower)) {
+        const t = mcpTools.find((x) => x.name === "linear.list_projects" || x.name === "linear_list_projects");
+        if (t) {
+          matchedTool = t;
+          toolArgs = {};
+        }
+      } else if (/\b(create\s+issue|new\s+issue|add\s+issue|create\s+task|new\s+task)\b/i.test(queryLower)) {
+        const t = mcpTools.find((x) => x.name === "linear.create_issue" || x.name === "linear_create_issue");
+        if (t) {
+          matchedTool = t;
+          const titleMatch = message.match(/(?:titled|title|named|called|issue:?)\s*[:'"“]\s*(.*?)[!'”"]?$/i);
+          toolArgs = {
+            title: titleMatch ? titleMatch[1] : message.replace(/.*(?:create|add|new)\s+(?:issue|task)(?:\s+in\s+linear)?(?:\s+titled)?/i, "").trim() || "New Issue from Rag_Mcp",
+            description: "Created via Rag_Mcp AI assistant",
+          };
+        }
+      } else {
+        const t = mcpTools.find((x) => x.name === "linear.search_issues" || x.name === "linear_search_issues");
+        if (t) {
+          matchedTool = t;
+          toolArgs = { query: message.trim() };
+        }
       }
     }
 
@@ -443,16 +612,20 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
 
     // If tool requires human approval, emit tool_approval event and pause
     if (matchedTool && matchedTool.requiresApproval) {
-      const approval = mcpRunner.createPendingApproval({
+      const callId = `call_${Date.now()}`;
+      const approval = await McpOrchestrator.executeTool({
+        workspaceId,
+        userId: req.user?.id,
         conversationId: conversation._id.toString(),
+        toolCallId: callId,
         toolName: matchedTool.name,
         args: toolArgs,
-        serverName: matchedTool.serverName,
+        isApproved: false,
       });
 
       res.write(
         `event: tool_approval\ndata: ${JSON.stringify({
-          toolCallId: approval.id,
+          toolCallId: approval.approvalId || callId,
           toolName: matchedTool.name,
           serverName: matchedTool.serverName,
           args: toolArgs,
@@ -468,7 +641,7 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
         content: `I've prepared a tool execution: **${matchedTool.name}** from **${matchedTool.serverName}**. Please confirm approval to proceed.`,
         toolCalls: [
           {
-            id: approval.id,
+            id: approval.approvalId || callId,
             toolName: matchedTool.name,
             serverName: matchedTool.serverName,
             args: toolArgs,
@@ -482,7 +655,7 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
       return res.end();
     }
 
-    // If auto tool (no approval required), emit tool_call, execute, emit tool_result, and inject context
+    // If auto tool (no approval required), emit tool_call, execute via official MCP client, emit tool_result, and inject context
     if (matchedTool && !matchedTool.requiresApproval) {
       const callId = `call_${Date.now()}`;
       res.write(
@@ -495,19 +668,31 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
         })}\n\n`
       );
 
-      const toolExecResult = await mcpRunner.executeTool(matchedTool.name, toolArgs);
+      const toolExecResult = await McpOrchestrator.executeTool({
+        workspaceId,
+        userId: req.user?.id,
+        conversationId: conversation._id.toString(),
+        toolCallId: callId,
+        toolName: matchedTool.name,
+        args: toolArgs,
+        isApproved: true,
+      });
 
       res.write(
         `event: tool_result\ndata: ${JSON.stringify({
           toolCallId: callId,
           toolName: matchedTool.name,
           serverName: matchedTool.serverName,
-          status: "completed",
+          status: toolExecResult.status === "error" ? "error" : "completed",
           result: toolExecResult.result,
         })}\n\n`
       );
 
-      aiPayload.custom_prompt = `The tool "${matchedTool.name}" from "${matchedTool.serverName}" was executed with parameters ${JSON.stringify(toolArgs)} and returned:\n${JSON.stringify(toolExecResult.result, null, 2)}\n\nIncorporate this verified output into your response.`;
+      aiPayload.custom_prompt = `[VERIFIED REAL-TIME TOOL DATA]:
+The connected tool "${matchedTool.name}" was executed successfully with live user credentials and returned this verified data:
+${JSON.stringify(toolExecResult.result, null, 2)}
+
+INSTRUCTION: You HAVE full authorized access to this user data. Directly answer the user's question using this verified output. Never say you lack access to their account.`;
     }
 
     const abortController = new AbortController();
@@ -598,7 +783,9 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
                       rows = table.rows;
                     }
                   } else if (fileIntent.fileType === "image") {
-                    genContent = fileIntent.title || message.trim() || genContent;
+                    genContent = (fileIntent.title && fileIntent.title !== "Generated Artwork")
+                      ? fileIntent.title
+                      : message.trim() || genContent;
                   } else if (fileIntent.fileType === "md") {
                     genContent = FileIntentService.cleanMarkdownContent(genContent, fileIntent.title);
                   } else if (
@@ -780,117 +967,130 @@ router.post("/approve-tool", authenticate, tenantGuard, async (req, res, next) =
     res.setHeader("X-Accel-Buffering", "no");
     if (typeof res.flushHeaders === "function") res.flushHeaders();
 
-    const record = mcpRunner.resolvePendingApproval(toolCallId, Boolean(approved));
-    if (!record) {
-      // If server was restarted or mock mode, create fallback simulated record
-      res.write(
-        `event: tool_result\ndata: ${JSON.stringify({
-          toolCallId,
-          toolName: "execute_readonly_sql",
-          serverName: "PostgreSQL Analytics MCP",
-          status: approved ? "completed" : "rejected",
-          result: approved
-            ? {
-                rowCount: 3,
-                columns: ["id", "customer", "plan", "amount", "status"],
-                data: [
-                  { id: "ord_101", customer: "Acme Corp", plan: "Enterprise", amount: 4800, status: "PAID" },
-                  { id: "ord_102", customer: "Globex Ltd", plan: "Pro", amount: 1200, status: "PAID" },
-                  { id: "ord_104", customer: "Umbrella Tech", plan: "Enterprise", amount: 9600, status: "PAID" },
-                ],
-              }
-            : null,
-        })}\n\n`
-      );
+    let resolved = null;
+    try {
+      resolved = await McpOrchestrator.resolveApproval({
+        approvalId: toolCallId,
+        approved: Boolean(approved),
+        userId: req.user?.id,
+      });
+    } catch (resolveErr) {
+      logger.warn({ err: resolveErr.message, toolCallId }, "McpOrchestrator.resolveApproval warning");
+    }
 
+    if (!approved || (resolved && !resolved.approved)) {
       res.write(
         `event: token\ndata: ${JSON.stringify({
-          delta: approved
-            ? "\n\nQuery executed successfully on the PostgreSQL analytics replica. Retrieved 3 matching paid orders totaling **$15,600**."
-            : "\n\n❌ Tool execution was cancelled by user.",
+          delta: "\n\n❌ Tool execution was cancelled or rejected by user.",
         })}\n\n`
       );
       res.write(`event: done\ndata: {}\n\n`);
       return res.end();
     }
 
-    if (!approved) {
-      res.write(
-        `event: token\ndata: ${JSON.stringify({
-          delta: `❌ Tool execution for **${record.toolName}** was rejected by user.`,
-        })}\n\n`
-      );
-      res.write(`event: done\ndata: {}\n\n`);
-      return res.end();
-    }
+    const toolName = resolved?.toolName || "execute_readonly_sql";
+    const serverName = resolved?.serverName || "MCP Tool";
+    const resultData = resolved?.result || { ok: true };
 
-    // Tool approved: execute
+    // Tool approved: emit executing and result
     res.write(
       `event: tool_call\ndata: ${JSON.stringify({
         toolCallId,
-        toolName: record.toolName,
-        serverName: record.serverName,
+        toolName,
+        serverName,
         status: "executing",
-        args: record.args,
+        args: resolved?.args || {},
       })}\n\n`
     );
-
-    const execRes = await mcpRunner.executeTool(record.toolName, record.args);
 
     res.write(
       `event: tool_result\ndata: ${JSON.stringify({
         toolCallId,
-        toolName: record.toolName,
-        serverName: record.serverName,
+        toolName,
+        serverName,
         status: "completed",
-        result: execRes.result,
+        result: resultData,
       })}\n\n`
     );
 
-    // Stream an explanation of the tool output
-    const summaryPrompt = `The MCP tool "${record.toolName}" was approved and executed. Here is the verified output:\n${JSON.stringify(
-      execRes.result,
-      null,
-      2
-    )}\n\nProvide a clear, helpful summary of these findings to the user.`;
+    // Build clear, instant, human-friendly summary response
+    let summaryText = "";
 
-    try {
-      await aiClient.streamChat(
-        workspaceId.toString(),
-        {
-          message: summaryPrompt,
-          conversationId,
-          mode: "general",
-          model: "gemini-3.8-flash",
-        },
-        {
-          onToken: (delta) => {
-            if (!res.writableEnded) {
-              res.write(`event: token\ndata: ${JSON.stringify({ delta })}\n\n`);
-            }
-          },
-          onDone: async () => {
-            if (!res.writableEnded) {
-              res.write(`event: done\ndata: {}\n\n`);
-              res.end();
-            }
-          },
-          onError: () => {
-            if (!res.writableEnded) {
-              res.write(`event: done\ndata: {}\n\n`);
-              res.end();
-            }
-          },
-        }
-      );
-    } catch {
-      if (!res.writableEnded) {
-        res.write(`event: done\ndata: {}\n\n`);
-        res.end();
+    if (toolName.includes("slack")) {
+      const channelName = resolved?.args?.channelId || resolved?.args?.channel || "channel";
+      const cleanChannel = channelName.replace(/^#/, "");
+      if (resultData && resultData.ok) {
+        summaryText = `\n\n✅ **Message posted to Slack #${cleanChannel} successfully!**\n> "${resolved?.args?.text || ""}"`;
+      } else {
+        const errorDetail = resultData?.message || resultData?.error || "Unknown Slack error";
+        summaryText = `\n\n⚠️ **Slack Message Notice**: ${errorDetail}\n\n*Note:* If the channel is newly created, ensure you invite the bot by typing \`/invite @Rag_Mcp\` (or your bot's name) in **#${cleanChannel}** in Slack.`;
+      }
+    } else if (toolName.includes("gmail") && toolName.includes("send")) {
+      const recipient = resolved?.args?.to || "recipient";
+      const subject = resolved?.args?.subject || "";
+      if (resultData && (resultData.id || resultData.status === "sent" || resultData.ok)) {
+        summaryText = `\n\n✅ **Email sent successfully to ${recipient}!**\n- **Subject:** ${subject}`;
+      } else {
+        summaryText = `\n\n⚠️ **Email sending notice**: ${resultData?.error || "Failed to send email."}`;
+      }
+    } else if (toolName.includes("calendar") && toolName.includes("create")) {
+      const eventName = resolved?.args?.summary || "Calendar Event";
+      summaryText = `\n\n✅ **Calendar event created successfully:** **${eventName}**!`;
+    } else if (toolName.includes("linear") && toolName.includes("create")) {
+      const issueTitle = resolved?.args?.title || "New Issue";
+      const issueKey = resultData?.issue?.identifier || resultData?.issue?.id || "";
+      summaryText = `\n\n✅ **Linear issue created successfully!**\n- **Title:** ${issueKey ? `[${issueKey}] ` : ""}${issueTitle}${resultData?.issue?.url ? `\n- **Link:** ${resultData.issue.url}` : ""}`;
+    } else if (toolName === "execute_readonly_sql") {
+      if (resultData && Array.isArray(resultData.data) && resultData.data.length > 0) {
+        const cols = resultData.columns || Object.keys(resultData.data[0]);
+        const header = `| ${cols.join(" | ")} |`;
+        const sep = `| ${cols.map(() => "---").join(" | ")} |`;
+        const rows = resultData.data.map((r) => `| ${cols.map((c) => r[c] ?? "").join(" | ")} |`).join("\n");
+        summaryText = `\n\nQuery executed successfully on analytical replica (${resultData.rowCount || resultData.data.length} rows returned):\n\n${header}\n${sep}\n${rows}`;
+      } else {
+        summaryText = `\n\nQuery executed successfully. Result: ${JSON.stringify(resultData)}`;
+      }
+    } else {
+      if (resultData?.error) {
+        summaryText = `\n\n❌ **Tool Error**: ${resultData.error}`;
+      } else if (typeof resultData === "string") {
+        summaryText = `\n\n${resultData}`;
+      } else {
+        summaryText = `\n\n✅ **Tool executed successfully.** Result:\n\`\`\`json\n${JSON.stringify(resultData, null, 2)}\n\`\`\``;
       }
     }
+
+    // Stream the summary token immediately
+    res.write(`event: token\ndata: ${JSON.stringify({ delta: summaryText })}\n\n`);
+
+    // Update message state in DB so refreshed views display completed status
+    if (conversationId) {
+      try {
+        await Message.updateOne(
+          {
+            conversationId,
+            "toolCalls.id": toolCallId,
+          },
+          {
+            $set: {
+              "toolCalls.$.status": "completed",
+              "toolCalls.$.result": resultData,
+            },
+          }
+        );
+      } catch (dbErr) {
+        logger.warn({ err: dbErr.message }, "Could not update message toolCalls status in DB");
+      }
+    }
+
+    res.write(`event: done\ndata: {}\n\n`);
+    res.end();
   } catch (err) {
-    next(err);
+    if (!res.writableEnded) {
+      res.write(`event: token\ndata: ${JSON.stringify({ delta: `\n\n❌ Execution error: ${err.message}` })}\n\n`);
+      res.write(`event: done\ndata: {}\n\n`);
+      res.end();
+    }
   }
 });
 

@@ -15,6 +15,7 @@ const CreateChatbotWizard = React.lazy(() => import("@/pages/dashboard/chatbot-c
 const ChatbotDetailPage  = React.lazy(() => import("@/pages/dashboard/chatbot-detail"));
 const KnowledgeBasesPage = React.lazy(() => import("@/pages/dashboard/knowledge-bases"));
 const McpPage            = React.lazy(() => import("@/pages/dashboard/mcp"));
+const AppsPage           = React.lazy(() => import("@/pages/dashboard/apps"));
 const ApiKeysPage        = React.lazy(() => import("@/pages/dashboard/api-keys"));
 const UsagePage          = React.lazy(() => import("@/pages/dashboard/usage"));
 const EvalsPage          = React.lazy(() => import("@/pages/dashboard/evals"));
@@ -73,9 +74,12 @@ export const router = createBrowserRouter([
       { path: "/chatbots/new",     element: lazy(CreateChatbotWizard) },
       { path: "/chatbots/:botId",  element: lazy(ChatbotDetailPage) },
       { path: "/knowledge-bases",  element: lazy(KnowledgeBasesPage) },
+      { path: "/apps",             element: lazy(AppsPage) },
+      { path: "/dashboard/apps",   element: lazy(AppsPage) },
       { path: "/mcp",              element: lazy(McpPage) },
       { path: "/api-keys",         element: lazy(ApiKeysPage) },
       { path: "/usage",            element: lazy(UsagePage) },
+      { path: "/dashboard/usage",  element: lazy(UsagePage) },
       { path: "/evals",            element: lazy(EvalsPage) },
 
       // 404 — must be last

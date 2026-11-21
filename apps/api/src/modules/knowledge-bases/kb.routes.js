@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { tenantGuard } from "../../middleware/tenant-guard.middleware.js";
 import { validate, objectIdSchema } from "../../middleware/validation.middleware.js";
+import { enforceQuota } from "../../middleware/quota-guard.middleware.js";
 import kbController from "./kb.controller.js";
 
 const router = Router();
@@ -31,7 +32,12 @@ const idParamsSchema = z
 router.use(authenticate, tenantGuard);
 
 router.get("/", kbController.list);
-router.post("/", validate({ body: createKbSchema }), kbController.create);
+router.post(
+  "/",
+  enforceQuota("knowledgeBases"),
+  validate({ body: createKbSchema }),
+  kbController.create
+);
 router.get("/:id", validate({ params: idParamsSchema }), kbController.getById);
 router.patch(
   "/:id",

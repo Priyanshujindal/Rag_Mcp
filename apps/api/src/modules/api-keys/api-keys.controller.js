@@ -10,10 +10,37 @@ export const apiKeysController = {
     }
   },
 
+  async getById(req, res, next) {
+    try {
+      const result = await apiKeysService.getById(req.workspaceId, req.params.id);
+      res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async create(req, res, next) {
     try {
-      const result = await apiKeysService.create(req.workspaceId, req.body);
+      const result = await apiKeysService.create(req.workspaceId, req.user?.id, req.body);
       res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async update(req, res, next) {
+    try {
+      const result = await apiKeysService.update(req.workspaceId, req.params.id, req.body);
+      res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async rotate(req, res, next) {
+    try {
+      const result = await apiKeysService.rotate(req.workspaceId, req.params.id);
+      res.status(200).json(result);
     } catch (err) {
       next(err);
     }
@@ -36,7 +63,19 @@ export const apiKeysController = {
       next(err);
     }
   },
+
+  async getUsage(req, res, next) {
+    try {
+      const result = await apiKeysService.getUsage(
+        req.workspaceId,
+        req.params.id,
+        req.query.limit
+      );
+      res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
 };
 
 export default apiKeysController;
-

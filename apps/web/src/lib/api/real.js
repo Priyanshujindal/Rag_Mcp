@@ -100,13 +100,17 @@ export async function getMockKnowledgeBases() {
   // Group sources by knowledgeBaseId
   const sourcesByKb = {};
   for (const s of rawSources) {
-    const kbId = s.knowledgeBaseId;
+    const rawKbId = s.knowledgeBaseId;
+    const kbId =
+      typeof rawKbId === "object" && rawKbId !== null
+        ? String(rawKbId.id || rawKbId._id || rawKbId)
+        : String(rawKbId || "");
     if (!sourcesByKb[kbId]) {
       sourcesByKb[kbId] = [];
     }
     sourcesByKb[kbId].push({
-      id: s.id,
-      knowledgeBaseId: s.knowledgeBaseId,
+      id: s.id || s._id,
+      knowledgeBaseId: kbId,
       title: s.name || s.url || "Untitled source",
       name: s.name || s.url || "Untitled source",
       url: s.url || "",
@@ -122,7 +126,8 @@ export async function getMockKnowledgeBases() {
   }
 
   return items.map((kb) => {
-    const kbSources = sourcesByKb[kb.id] || [];
+    const targetKbId = String(kb.id || kb._id || "");
+    const kbSources = sourcesByKb[targetKbId] || [];
     const sourcesCount = kbSources.length;
     const totalChunks = kbSources.reduce(
       (acc, s) => acc + (s.chunkCount || s.chunksCount || 0),
@@ -222,43 +227,56 @@ export async function getMockApiKeys() {
   return Array.isArray(data) ? data : [];
 }
 
+export async function getUsageOverview(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return api.get(`/usage/overview${query ? `?${query}` : ""}`);
+}
+
+export async function getUsageLimits() {
+  return api.get("/usage/limits");
+}
+
+export async function getUsageAnalytics(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return api.get(`/usage/analytics${query ? `?${query}` : ""}`);
+}
+
+export async function getUsageHistory(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return api.get(`/usage/history${query ? `?${query}` : ""}`);
+}
+
 export async function getMockUsageMetrics() {
   try {
     const data = await api.get("/usage");
-    return [
-      {
-        metric: "Knowledge Bases",
-        value: data.knowledgeBases?.count || 0,
-        limit: data.knowledgeBases?.limit || 10,
-      },
-      {
-        metric: "Sources",
-        value: data.sources?.count || 0,
-        limit: data.sources?.limit || 50,
-      },
-      {
-        metric: "Chatbots",
-        value: data.chatbots?.count || 0,
-        limit: 10,
-      },
-    ];
+    const { mockUsageMetrics } = await import("../mock/data.js");
+    const daily = Array.isArray(data?.dailyMetrics) && data.dailyMetrics.length > 0 ? data.dailyMetrics : mockUsageMetrics;
+    return {
+      dailyMetrics: daily,
+      workspaceUsage: data,
+      plan: data?.plan,
+      metrics: data?.metrics,
+      warnings: data?.warnings,
+    };
   } catch {
     const { mockUsageMetrics } = await import("../mock/data.js");
-    return mockUsageMetrics;
+    return {
+      dailyMetrics: mockUsageMetrics,
+      workspaceUsage: null,
+    };
   }
 }
 
 export async function getMockEvalRuns() {
   try {
     const data = await api.get("/evals");
-    if (Array.isArray(data) && data.length > 0) {
+    if (Array.isArray(data)) {
       return data;
     }
   } catch (err) {
-    console.warn("Failed to fetch real evals, using mock:", err);
+    console.warn("Failed to fetch real evals:", err);
   }
-  const { mockEvalRuns } = await import("../mock/data.js");
-  return mockEvalRuns;
+  return [];
 }
 
 export async function runEvaluation(payload) {
@@ -355,6 +373,18 @@ export async function createApiKey(data) {
   return api.post("/api-keys", data);
 }
 
+export async function rotateApiKey(id) {
+  return api.post(`/api-keys/${id}/rotate`, {});
+}
+
+export async function updateApiKey(id, data) {
+  return api.patch(`/api-keys/${id}`, data);
+}
+
+export async function getApiKeyUsage(id) {
+  return api.get(`/api-keys/${id}/usage`);
+}
+
 export async function revokeApiKey(id) {
   return api.post(`/api-keys/${id}/revoke`, {});
 }
@@ -367,8 +397,34 @@ export async function createMcpServer(data) {
   return api.post("/mcp", data);
 }
 
-export async function toggleMcpTool(serverId, toolName, { enabled, requiresApproval }) {
-  return api.patch(`/mcp/${serverId}/tools/${toolName}`, { enabled, requiresApproval });
+export async function updateMcpServer(id, data) {
+  return api.patch(`/mcp/${id}`, data);
+}
+
+export async function deleteMcpServer(id) {
+  return api.delete(`/mcp/${id}`);
+}
+
+export async function refreshMcpTools(id) {
+  return api.post(`/mcp/${id}/refresh`);
+}
+
+export async function testMcpConnection(id, data) {
+  return api.post(id ? `/mcp/${id}/test` : "/mcp/test", data || {});
+}
+
+export async function toggleMcpTool(serverId, toolName, { enabled, permission, requiresApproval }) {
+  return api.patch(`/mcp/${serverId}/tools/${toolName}`, { enabled, permission, requiresApproval });
+}
+
+export async function getMcpExecutions(limit = 50) {
+  const data = await api.get(`/mcp/executions?limit=${limit}`);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getActiveMcpTools() {
+  const data = await api.get("/mcp/tools");
+  return Array.isArray(data?.tools) ? data.tools : [];
 }
 
 
@@ -381,3 +437,43 @@ export async function getSourceChunks(sourceId, page = 1, limit = 5) {
     pagination: data?.pagination || { page, limit, total: 0, totalPages: 0 },
   };
 }
+
+// ----------------- Connected Apps & Integrations Marketplace -----------------
+export async function getIntegrationsCatalog() {
+  const data = await api.get("/integrations/catalog");
+  return data?.catalog || [];
+}
+
+export async function getConnectedAccounts() {
+  const data = await api.get("/integrations/connections");
+  return data?.connections || [];
+}
+
+export async function authorizeIntegration(id, data = {}) {
+  return api.post(`/integrations/${id}/authorize`, data);
+}
+
+export async function callbackIntegration(id, data) {
+  return api.post(`/integrations/${id}/callback`, data);
+}
+
+export async function connectIntegrationToken(data) {
+  return api.post("/integrations/connect-token", data);
+}
+
+export async function demoConnectIntegration(id, data = {}) {
+  return api.post(`/integrations/${id}/demo-connect`, data);
+}
+
+export async function updateConnectedAccount(id, data) {
+  return api.patch(`/integrations/connections/${id}`, data);
+}
+
+export async function testConnectedAccount(id) {
+  return api.post(`/integrations/connections/${id}/test`);
+}
+
+export async function disconnectAccount(id) {
+  return api.delete(`/integrations/connections/${id}`);
+}
+

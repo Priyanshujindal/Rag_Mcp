@@ -660,7 +660,7 @@ export function useChat({ provider = "gemini", model = "gemini-3.5-flash-lite" }
                 prev.map((m) => ({
                   ...m,
                   toolCalls: (m.toolCalls || []).map((tc) =>
-                    tc.id === toolCallId
+                    tc.id === toolCallId || tc.id === chunk.toolCallId
                       ? { ...tc, status: "completed", result: chunk.result }
                       : tc
                   ),
@@ -670,6 +670,16 @@ export function useChat({ provider = "gemini", model = "gemini-3.5-flash-lite" }
           },
           onDone: () => {
             setIsTyping(false);
+            setMessages((prev) =>
+              prev.map((m) => ({
+                ...m,
+                toolCalls: (m.toolCalls || []).map((tc) =>
+                  tc.id === toolCallId && tc.status === "executing"
+                    ? { ...tc, status: "completed" }
+                    : tc
+                ),
+              }))
+            );
           },
           onError: (err) => {
             console.error("Tool approval error:", err);

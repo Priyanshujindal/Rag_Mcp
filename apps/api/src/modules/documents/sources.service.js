@@ -4,6 +4,7 @@ import { Source, KnowledgeBase, Chunk } from "../../db/models/index.js";
 import { assertSourceQuota } from "../../utils/quota.js";
 import storage from "../../utils/storage.js";
 import aiClient from "../../services/ai-client.js";
+import usageService from "../usage/usage.service.js";
 
 /**
  * Validates that file buffer matches claimed extension and rejects disguised executables
@@ -156,6 +157,14 @@ export const sourcesService = {
         source.save().catch(() => {});
       });
 
+    usageService.recordEvent({
+      workspaceId,
+      eventType: "document.upload",
+      category: "storage",
+      status: "success",
+      metadata: { type: "URL", name, url },
+    });
+
     return source.toJSON();
   },
 
@@ -169,6 +178,8 @@ export const sourcesService = {
     source.error = null;
     await source.save();
 
+    const filePath = source.fileKey ? storage.getFilePath(source.fileKey) : null;
+
     // Dispatch re-indexing task to Python ai-service
     aiClient
       .ingest(workspaceId, {
@@ -176,6 +187,7 @@ export const sourcesService = {
         sourceId: source._id.toString(),
         sourceType: source.type,
         url: source.url,
+        filePath,
         fileKey: source.fileKey,
         originalFilename: source.name,
       })
@@ -200,6 +212,14 @@ export const sourcesService = {
 
     // Call ai-service to delete chunks associated with sourceId: id
     await aiClient.deleteSourceChunks(workspaceId, id.toString()).catch(() => {});
+
+    usageService.recordEvent({
+      workspaceId,
+      eventType: "document.delete",
+      category: "storage",
+      status: "success",
+      metadata: { sourceId: id, type: source.type },
+    });
 
     return { success: true };
   },
@@ -227,7 +247,7 @@ export const sourcesService = {
     };
     const sourceType = typeMap[ext] || "TXT";
 
-    const { fileKey } = await storage.saveFile(file.buffer, file.originalname);
+    const { fileKey, filePath } = await storage.saveFile(file.buffer, file.originalname);
 
     const source = await Source.create({
       workspaceId,
@@ -244,6 +264,7 @@ export const sourcesService = {
         knowledgeBaseId: knowledgeBaseId.toString(),
         sourceId: source._id.toString(),
         sourceType,
+        filePath,
         fileKey,
         originalFilename: file.originalname,
       })
@@ -252,6 +273,15 @@ export const sourcesService = {
         source.error = err.message;
         source.save().catch(() => {});
       });
+
+    usageService.recordEvent({
+      workspaceId,
+      eventType: "document.upload",
+      category: "storage",
+      status: "success",
+      storageBytes: file.size || file.buffer?.length || 0,
+      metadata: { type: sourceType, filename: file.originalname },
+    });
 
     return source.toJSON();
   },

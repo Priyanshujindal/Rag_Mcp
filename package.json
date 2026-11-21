@@ -2,6 +2,7 @@
   "name": "rag-mcp-monorepo",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -17,5 +18,8 @@
     "preview": "pnpm --filter @rag-mcp/web preview",
     "lint": "pnpm -r run lint",
     "test": "pnpm --filter @rag-mcp/api test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
   }
 }

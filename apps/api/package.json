@@ -14,6 +14,7 @@
     "db:seed": "node src/db/seed.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -37,4 +38,3 @@
     "vitest": "^3.0.5"
   }
 }
-

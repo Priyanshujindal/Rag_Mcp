@@ -1,6 +1,67 @@
 import React from "react";
 
 const PROVIDERS = {
+  cloudflare: {
+    name: "Cloudflare AI ☁️",
+    models: [
+      {
+        id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        name: "Llama 3.3 70B ⚡",
+        free: true,
+        recommended: true,
+        context: "128K tokens",
+        limit: "Fast & High Quality",
+      },
+      {
+        id: "@cf/meta/llama-3.1-8b-instruct",
+        name: "Llama 3.1 8B",
+        free: true,
+        recommended: false,
+        context: "128K tokens",
+        limit: "Ultra Fast",
+      },
+      {
+        id: "@cf/mistralai/mistral-small-3.1-24b-instruct",
+        name: "Mistral Small 24B",
+        free: true,
+        recommended: false,
+        context: "32K tokens",
+        limit: "Strong Reasoning",
+      },
+      {
+        id: "@cf/google/gemma-4-26b-a4b-it",
+        name: "Google Gemma 4 26B",
+        free: true,
+        recommended: false,
+        context: "8K tokens",
+        limit: "Multilingual",
+      },
+      {
+        id: "@cf/qwen/qwen2.5-coder-32b-instruct",
+        name: "Qwen 2.5 Coder 32B",
+        free: true,
+        recommended: false,
+        context: "32K tokens",
+        limit: "Code Specialized",
+      },
+      {
+        id: "@cf/openai/gpt-oss-120b",
+        name: "GPT-OSS 120B (via CF)",
+        free: true,
+        recommended: false,
+        context: "128K tokens",
+        limit: "Deep Reasoning",
+      },
+      {
+        id: "@cf/cloudflare/clairic-flash",
+        name: "Clairic Flash",
+        free: true,
+        recommended: false,
+        context: "32K tokens",
+        limit: "Cloudflare Native",
+      },
+    ],
+  },
   groq: {
     name: "Groq ⚡",
     models: [

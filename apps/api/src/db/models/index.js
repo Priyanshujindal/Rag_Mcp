@@ -8,9 +8,14 @@ export { Chatbot } from "./chatbot.model.js";
 export { Conversation } from "./conversation.model.js";
 export { Message } from "./message.model.js";
 export { ApiKey } from "./api-key.model.js";
+export { ApiKeyUsageLog } from "./api-key-usage-log.model.js";
 export { McpServer } from "./mcp-server.model.js";
+export { McpExecution } from "./mcp-execution.model.js";
+export { McpApproval } from "./mcp-approval.model.js";
+export { IntegrationConnection } from "./integration-connection.model.js";
 export { Webhook } from "./webhook.model.js";
 export { EvalRun } from "./eval-run.model.js";
 export { Artifact } from "./artifact.model.js";
+export { UsageEvent } from "./usage-event.model.js";
 
 export { Chunk } from "./chunk.model.js";

@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
-import { mockEvalRuns } from "@/lib/mock/data";
 import {
   getMockEvalRuns,
   getEvalRunDetails,
@@ -52,7 +51,7 @@ function statusBadge(status) {
 }
 
 export default function EvalsPage() {
-  const [runs, setRuns] = useState(mockEvalRuns);
+  const [runs, setRuns] = useState([]);
   const [knowledgeBases, setKnowledgeBases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -63,7 +62,7 @@ export default function EvalsPage() {
   const [runError, setRunError] = useState(null);
   const [selectedKbId, setSelectedKbId] = useState("");
   const [selectedSuite, setSelectedSuite] = useState("Golden Q&A Benchmark (Curated)");
-  const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash");
+  const [selectedModel, setSelectedModel] = useState("gemini-3.8-flash");
   const [topK, setTopK] = useState(5);
 
   // Inspector drawer state
@@ -167,14 +166,16 @@ export default function EvalsPage() {
   };
 
   // Compute aggregate stats across runs
-  const completedRuns = runs.filter((r) => r.status === "completed");
+  const completedRuns = runs.filter(
+    (r) => r.status?.toLowerCase() === "completed"
+  );
   const avgFaithfulness = completedRuns.length
     ? Math.round(
         (completedRuns.reduce((acc, r) => acc + (Number(r.faithfulnessScore) || 0), 0) /
           completedRuns.length) *
           100
       )
-    : 95;
+    : 0;
 
   const avgRelevance = completedRuns.length
     ? Math.round(
@@ -182,7 +183,7 @@ export default function EvalsPage() {
           completedRuns.length) *
           100
       )
-    : 92;
+    : 0;
 
   const avgRecall = completedRuns.length
     ? Math.round(
@@ -190,19 +191,18 @@ export default function EvalsPage() {
           completedRuns.length) *
           100
       )
-    : 89;
+    : 0;
 
   const avgHallucination = completedRuns.length
     ? Math.round(
         (completedRuns.reduce((acc, r) => {
           if (r.hallucinationRate !== undefined) return acc + Number(r.hallucinationRate);
-          // If hallucinationRate not explicit, derive from faithfulness < 0.70
-          return acc + (1 - (Number(r.faithfulnessScore) || 0.95));
+          return acc + (1 - (Number(r.faithfulnessScore) || 0));
         }, 0) /
           completedRuns.length) *
           100
       )
-    : 5;
+    : 0;
 
   // Filter samples for active run inspection
   const samplesList = activeRun?.samples || [];
@@ -477,17 +477,24 @@ export default function EvalsPage() {
 
               <div className="eval-form-row">
                 <div className="eval-field-group" style={{ flex: 1 }}>
-                  <label className="eval-label">Evaluation LLM Model</label>
+                  <label className="eval-label">Evaluation Target Model</label>
                   <select
                     className="eval-select"
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
                     disabled={running}
                   >
-                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Ultra Fast)</option>
-                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Reasoning)</option>
-                    <option value="gpt-4o">GPT-4o</option>
-                    <option value="gpt-4o-mini">GPT-4o Mini</option>
+                    <optgroup label="Google Gemini">
+                      <option value="gemini-3.8-flash">Gemini 3.8 Flash (Default)</option>
+                      <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+                    </optgroup>
+                    <optgroup label="Cloudflare AI">
+                      <option value="@cf/meta/llama-3.3-70b-instruct-fp8-fast">Llama 3.3 70B (Fast)</option>
+                      <option value="@cf/meta/llama-3.1-8b-instruct">Llama 3.1 8B</option>
+                    </optgroup>
+                    <optgroup label="Groq">
+                      <option value="qwen/qwen3.8-27b">Qwen 3.8 27B</option>
+                    </optgroup>
                   </select>
                 </div>
 

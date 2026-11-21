@@ -41,6 +41,22 @@ async def ingest_source(
     """
     db = get_db(request)
     target = payload.url or payload.filePath
+    if not target and payload.fileKey:
+        import os
+        from pathlib import Path
+        filename = os.path.basename(payload.fileKey)
+        root = Path(__file__).resolve().parents[3]
+        candidates = [
+            root / "apps" / "api" / "storage" / filename,
+            root / "storage" / filename,
+        ]
+        for c in candidates:
+            if c.exists():
+                target = str(c)
+                break
+        if not target:
+            target = str(candidates[0])
+
     is_url = bool(payload.url)
 
     logger.info(

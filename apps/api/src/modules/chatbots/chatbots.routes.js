@@ -4,6 +4,7 @@ import rateLimit from "express-rate-limit";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { tenantGuard } from "../../middleware/tenant-guard.middleware.js";
 import { validate, objectIdSchema } from "../../middleware/validation.middleware.js";
+import { enforceQuota } from "../../middleware/quota-guard.middleware.js";
 import chatbotsController from "./chatbots.controller.js";
 
 const router = Router();
@@ -78,7 +79,12 @@ const chatMessageSchema = z
 router.use(authenticate, tenantGuard);
 
 router.get("/", chatbotsController.list);
-router.post("/", validate({ body: createChatbotSchema }), chatbotsController.create);
+router.post(
+  "/",
+  enforceQuota("chatbots"),
+  validate({ body: createChatbotSchema }),
+  chatbotsController.create
+);
 router.get("/:id", validate({ params: idParamsSchema }), chatbotsController.getById);
 router.get("/:id/embed", validate({ params: idParamsSchema }), chatbotsController.getEmbed);
 router.post(

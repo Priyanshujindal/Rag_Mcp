@@ -70,6 +70,14 @@ const chatbotSchema = new mongoose.Schema(
       type: [String],
       default: ["*"],
     },
+    externalApiEnabled: {
+      type: Boolean,
+      default: true,
+    },
+    publicDescription: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,

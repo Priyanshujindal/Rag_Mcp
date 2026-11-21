@@ -139,7 +139,8 @@ async def test_all_models_busy_gives_friendly_error_without_secrets():
 
 
 async def test_all_models_stalling_gives_timeout_message():
-    fake = FakeGoogle({PRIMARY: [("stall",)], FALLBACK_1: [("stall",)], FALLBACK_2: [("stall",)]})
+    all_candidates = GeminiLLMProvider._candidate_models(PRIMARY)
+    fake = FakeGoogle({m: [("stall",)] for m in all_candidates})
     started = time.monotonic()
     with pytest.raises(RuntimeError) as excinfo:
         await collect(make_provider(fake))

@@ -29,6 +29,7 @@ import publicApiRoutes from "./modules/public-api/v1.routes.js";
 import chatRoutes from "./modules/chat/chat.routes.js";
 import evalsRoutes from "./modules/evals/evals.routes.js";
 import artifactsRoutes from "./modules/artifacts/artifacts.routes.js";
+import integrationsRoutes from "./modules/integrations/integrations.routes.js";
 
 /**
  * Builds and configures the Express application
@@ -177,6 +178,7 @@ export function createApp() {
   app.use("/api/v1/chatbots", chatbotsRoutes);
   app.use("/api/v1/api-keys", apiKeysRoutes);
   app.use("/api/v1/mcp", mcpRoutes);
+  app.use("/api/v1/integrations", integrationsRoutes);
   app.use("/api/v1/usage", usageRoutes);
   app.use("/api/v1/chat", chatRoutes);
   app.use("/api/v1/evals", evalsRoutes);

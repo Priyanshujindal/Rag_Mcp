@@ -23,6 +23,7 @@ import {
   Pin,
   Pencil,
   Check,
+  LayoutGrid,
   X,
 } from "lucide-react";
 import { getMockChatbots } from "@/lib/api";
@@ -41,6 +42,7 @@ import {
 const MAIN_NAV = [
   { href: "/chatbots",        label: "Chatbots Builder",  icon: Bot,          isPrimary: true },
   { href: "/knowledge-bases", label: "Knowledge Bases",   icon: Database },
+  { href: "/apps",            label: "Connected Apps",    icon: LayoutGrid },
   { href: "/mcp",             label: "MCP Plugins & Tools", icon: Wrench },
   { href: "/evals",           label: "RAG Evals",         icon: TestTube2 },
   { href: "/api-keys",        label: "API Keys",          icon: Key },

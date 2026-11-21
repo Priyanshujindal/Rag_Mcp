@@ -51,7 +51,7 @@ def test_prompt_builder_includes_live_web_context():
     assert "<live_web_context>" in user_msg
     assert "MrBeast - Wikipedia" in user_msg
     assert "330 million subscribers" in user_msg
-    assert "Cite web sources using bracketed index numbers like [1], [2]" in user_msg
+    assert "Cite sources using bracketed index numbers like [1], [2]" in user_msg
 
 
 def test_calculate_web_score_dynamic_and_differentiated():

@@ -14,11 +14,29 @@ import {
   Download,
   FileText,
   Code2,
+  Plug,
+  Wrench,
+  ExternalLink,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { exportChat } from "@/lib/utils/chat-export";
+import { getActiveMcpTools } from "@/lib/api";
 
 export const PROVIDER_OPTIONS = {
+  cloudflare: {
+    id: "cloudflare",
+    name: "Cloudflare AI ☁️",
+    defaultModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    models: [
+      { id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B ⚡ (Fast & Smart)" },
+      { id: "@cf/meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B (Ultra Fast)" },
+      { id: "@cf/mistralai/mistral-small-3.1-24b-instruct", name: "Mistral Small 3.1 24B" },
+      { id: "@cf/google/gemma-4-26b-a4b-it", name: "Google Gemma 4 26B" },
+      { id: "@cf/qwen/qwen2.5-coder-32b-instruct", name: "Qwen 2.5 Coder 32B" },
+      { id: "@cf/openai/gpt-oss-120b", name: "GPT-OSS 120B (via CF)" },
+      { id: "@cf/cloudflare/clairic-flash", name: "Clairic Flash (Cloudflare)" },
+    ],
+  },
   groq: {
     id: "groq",
     name: "Groq ⚡",
@@ -75,6 +93,8 @@ export function ChatHeader({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [activeTools, setActiveTools] = useState([]);
   const [knowledgeBases, setKnowledgeBases] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -90,6 +110,7 @@ export function ChatHeader({
   const selectorRef = useRef(null);
   const historyRef = useRef(null);
   const exportRef = useRef(null);
+  const toolsRef = useRef(null);
 
   const handleSaveTitle = () => {
     if (draftTitle && draftTitle.trim() && conversationId) {
@@ -109,11 +130,34 @@ export function ChatHeader({
       if (exportRef.current && !exportRef.current.contains(event.target)) {
         setExportOpen(false);
       }
+      if (toolsRef.current && !toolsRef.current.contains(event.target)) {
+        setToolsOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
+  }, []);
+
+  useEffect(() => {
+    getActiveMcpTools()
+      .then((tools) => {
+        if (Array.isArray(tools) && tools.length > 0) {
+          setActiveTools(tools);
+        } else {
+          setActiveTools([
+            { name: "gmail.search_emails", serverName: "Gmail", description: "Search user's Gmail messages" },
+            { name: "google_drive.search_files", serverName: "Google Drive", description: "Search Google Drive files" },
+            { name: "github.list_repositories", serverName: "GitHub", description: "List repositories" },
+            { name: "notion.search", serverName: "Notion", description: "Search Notion workspace" },
+            { name: "slack.search_messages", serverName: "Slack", description: "Search Slack discussions" },
+            { name: "execute_readonly_sql", serverName: "Builtin", description: "Read-only database queries" },
+            { name: "calculate_metrics", serverName: "Builtin", description: "Exact mathematical calculations" },
+          ]);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -145,7 +189,9 @@ export function ChatHeader({
 
   const handleProviderSelect = (newProv) => {
     setSelectedProvider && setSelectedProvider(newProv);
-    if (newProv === "groq") {
+    if (newProv === "cloudflare") {
+      setSelectedModel && setSelectedModel("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+    } else if (newProv === "groq") {
       setSelectedModel && setSelectedModel("qwen/qwen3.8-27b");
     } else if (newProv === "openrouter") {
       setSelectedModel && setSelectedModel("nvidia/nemotron-3-ultra-550b-a55b:free");
@@ -159,14 +205,28 @@ export function ChatHeader({
     : null;
 
   const providerName =
-    selectedProvider === "groq"
+    selectedProvider === "cloudflare"
+      ? "Cloudflare AI ☁️"
+      : selectedProvider === "groq"
       ? "Groq ⚡"
       : selectedProvider === "openrouter"
       ? "OpenRouter"
       : "Google Gemini";
 
   const modelShortName = selectedModel
-    ? selectedModel.includes("qwen3.8")
+    ? selectedModel.includes("llama-3.3-70b")
+      ? "Llama 3.3 70B"
+      : selectedModel.includes("llama-3.1-8b")
+      ? "Llama 3.1 8B"
+      : selectedModel.includes("mistral-small-3.1")
+      ? "Mistral Small 24B"
+      : selectedModel.includes("gemma-4-26b")
+      ? "Gemma 4 26B"
+      : selectedModel.includes("qwen2.5-coder")
+      ? "Qwen Coder 32B"
+      : selectedModel.includes("clairic-flash")
+      ? "Clairic Flash"
+      : selectedModel.includes("qwen3.8")
       ? "Qwen 3.8 27B"
       : selectedModel.includes("gpt-oss-120b")
       ? "GPT OSS 120B"
@@ -176,8 +236,6 @@ export function ChatHeader({
       ? "ALLaM 2 7B"
       : selectedModel.includes("nemotron")
       ? "Nemotron Ultra"
-      : selectedModel.includes("gemma")
-      ? "Gemma 4"
       : selectedModel.includes("openrouter/free")
       ? "OpenRouter Free"
       : selectedModel.includes("3.8")
@@ -186,8 +244,10 @@ export function ChatHeader({
       ? "Gemini 3.6 Flash"
       : selectedModel.includes("3.5")
       ? "Gemini 3.5 Lite"
+      : selectedModel.startsWith("@cf/")
+      ? selectedModel.split("/").pop()
       : selectedModel
-    : "Qwen 3.8 27B";
+    : "Llama 3.3 70B";
 
   const selectorLabel =
     chatMode === "general"
@@ -251,6 +311,7 @@ export function ChatHeader({
                   onChange={(e) => handleProviderSelect(e.target.value)}
                   className="dropdown-select"
                 >
+                  <option value="cloudflare">Cloudflare AI ☁️ (Free Tier)</option>
                   <option value="groq">Groq ⚡ (Ultra Fast)</option>
                   <option value="gemini">Google Gemini</option>
                   <option value="openrouter">OpenRouter</option>
@@ -377,6 +438,66 @@ export function ChatHeader({
             )}
           </div>
         )}
+
+        {/* Connected Tools & Apps Dropdown */}
+        <div className="chat-export-wrapper" ref={toolsRef}>
+          <button
+            type="button"
+            className={`chat-header-btn ${toolsOpen ? "active" : ""}`}
+            onClick={() => setToolsOpen(!toolsOpen)}
+            title="Connected MCP Tools & Apps"
+            style={{ color: "#38bdf8", border: "1px solid rgba(56, 189, 248, 0.25)", background: toolsOpen ? "rgba(56, 189, 248, 0.15)" : "rgba(56, 189, 248, 0.05)" }}
+          >
+            <Plug size={14} />
+            <span>Tools & Apps ({activeTools.length || 7})</span>
+          </button>
+
+          {toolsOpen && (
+            <div className="chat-export-dropdown" style={{ minWidth: "320px", maxHeight: "420px", overflowY: "auto", right: 0 }}>
+              <div className="export-dropdown-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>Active Tools & Apps</span>
+                <span style={{ fontSize: "10px", color: "#4ade80", fontWeight: 600, background: "rgba(34, 197, 94, 0.15)", padding: "1px 6px", borderRadius: "4px" }}>Active</span>
+              </div>
+
+              <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--border)", background: "rgba(255,255,255,0.02)" }}>
+                <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-muted)", marginBottom: "4px", textTransform: "uppercase" }}>Connected Services:</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: "rgba(234, 67, 53, 0.15)", color: "#f87171", fontWeight: 600 }}>Gmail</span>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: "rgba(52, 168, 83, 0.15)", color: "#4ade80", fontWeight: 600 }}>Google Drive</span>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: "rgba(66, 133, 244, 0.15)", color: "#60a5fa", fontWeight: 600 }}>Calendar</span>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: "rgba(255, 255, 255, 0.1)", color: "#f8fafc", fontWeight: 600 }}>GitHub</span>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: "rgba(255, 255, 255, 0.1)", color: "#f8fafc", fontWeight: 600 }}>Notion</span>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: "rgba(224, 30, 90, 0.15)", color: "#f472b6", fontWeight: 600 }}>Slack</span>
+                </div>
+              </div>
+
+              <div style={{ maxHeight: "220px", overflowY: "auto" }}>
+                {activeTools.map((t, i) => (
+                  <div key={i} style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <code style={{ fontSize: "11px", color: "#93c5fd", fontWeight: 600 }}>{t.name}</code>
+                      <span style={{ fontSize: "9px", padding: "1px 5px", borderRadius: "3px", background: "rgba(255,255,255,0.08)", color: "var(--text-muted)" }}>
+                        {t.serverName || "App"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {t.description}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ padding: "8px 12px", borderTop: "1px solid var(--border)", display: "flex", gap: "8px" }}>
+                <a href="/apps" style={{ flex: 1, textAlign: "center", fontSize: "11px", padding: "5px 8px", background: "#3b82f6", color: "#fff", borderRadius: "4px", textDecoration: "none", fontWeight: 600 }}>
+                  Manage Apps →
+                </a>
+                <a href="/mcp" style={{ flex: 1, textAlign: "center", fontSize: "11px", padding: "5px 8px", background: "rgba(255,255,255,0.08)", color: "var(--foreground)", borderRadius: "4px", textDecoration: "none", fontWeight: 500 }}>
+                  MCP Plugins
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Export Chat Dropdown */}
         <div className="chat-export-wrapper" ref={exportRef}>

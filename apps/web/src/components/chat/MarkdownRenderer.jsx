@@ -131,7 +131,7 @@ export function MarkdownRenderer({ content }) {
 
         const rawLines = block.value.split("\n");
         const renderedElements = [];
-        let currentList = null; // { type: 'ul' | 'ol', items: [] }
+        let currentList = null; // { type: 'ul' | 'ol', start: 1, items: [{ num: number, lines: [] }] }
 
         const flushList = () => {
           if (currentList) {
@@ -140,17 +140,25 @@ export function MarkdownRenderer({ content }) {
                 <ul key={`ul-${renderedElements.length}`} className="chat-md-ul">
                   {currentList.items.map((it, idx) => (
                     <li key={idx} className="chat-md-li">
-                      {parseInline(it)}
+                      {it.lines.map((ln, lIdx) => (
+                        <div key={lIdx} className="chat-md-li-line">
+                          {parseInline(ln)}
+                        </div>
+                      ))}
                     </li>
                   ))}
                 </ul>
               );
             } else {
               renderedElements.push(
-                <ol key={`ol-${renderedElements.length}`} className="chat-md-ol">
+                <ol key={`ol-${renderedElements.length}`} start={currentList.start || 1} className="chat-md-ol">
                   {currentList.items.map((it, idx) => (
-                    <li key={idx} className="chat-md-li">
-                      {parseInline(it)}
+                    <li key={idx} value={it.num} className="chat-md-li">
+                      {it.lines.map((ln, lIdx) => (
+                        <div key={lIdx} className="chat-md-li-line">
+                          {parseInline(ln)}
+                        </div>
+                      ))}
                     </li>
                   ))}
                 </ol>
@@ -163,6 +171,26 @@ export function MarkdownRenderer({ content }) {
         for (let i = 0; i < rawLines.length; i++) {
           const line = rawLines[i].trim();
           if (!line) {
+            // Check if this is a loose list where the next non-empty line is another item
+            if (currentList) {
+              let nextNonEmptyIdx = -1;
+              for (let j = i + 1; j < rawLines.length; j++) {
+                if (rawLines[j].trim()) {
+                  nextNonEmptyIdx = j;
+                  break;
+                }
+              }
+              if (nextNonEmptyIdx !== -1) {
+                const nextLine = rawLines[nextNonEmptyIdx].trim();
+                const isNextItem =
+                  (currentList.type === "ol" && /^\d+\.\s+/.test(nextLine)) ||
+                  (currentList.type === "ul" && /^(\*|-|•)\s+/.test(nextLine));
+                if (isNextItem) {
+                  // Keep the list active across blank lines between items
+                  continue;
+                }
+              }
+            }
             flushList();
             continue;
           }
@@ -232,18 +260,19 @@ export function MarkdownRenderer({ content }) {
               flushList();
               currentList = { type: "ul", items: [] };
             }
-            currentList.items.push(ulMatch[2]);
+            currentList.items.push({ lines: [ulMatch[2]] });
             continue;
           }
 
           // Ordered list (1. item, 2. item)
           const olMatch = line.match(/^(\d+)\.\s+(.*)/);
           if (olMatch) {
+            const num = parseInt(olMatch[1], 10);
             if (!currentList || currentList.type !== "ol") {
               flushList();
-              currentList = { type: "ol", items: [] };
+              currentList = { type: "ol", start: num, items: [] };
             }
-            currentList.items.push(olMatch[2]);
+            currentList.items.push({ num, lines: [olMatch[2]] });
             continue;
           }
 
@@ -295,6 +324,12 @@ export function MarkdownRenderer({ content }) {
               i = endIndex;
               continue;
             }
+          }
+
+          // If inside an active list item, treat non-block lines as continuation of current item
+          if (currentList && currentList.items.length > 0) {
+            currentList.items[currentList.items.length - 1].lines.push(line);
+            continue;
           }
 
           // Regular paragraph line

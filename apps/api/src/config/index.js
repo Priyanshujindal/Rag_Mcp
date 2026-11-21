@@ -120,7 +120,10 @@ export function validateEnv(rawEnv = {}) {
     MAX_KBS_PER_WORKSPACE: z.coerce.number().default(10),
     MAX_SOURCES_PER_KB: z.coerce.number().default(50),
     MAX_UPLOAD_MB: z.coerce.number().default(20),
+    USER_STORAGE_LIMIT_MB: z.coerce.number().default(50),
+    TOTAL_STORAGE_LIMIT_MB: z.coerce.number().default(512),
     STORAGE_DIR: z.string().default("storage/artifacts"),
+    PLATFORM_KEY_PEPPER: z.string().default("rag_platform_key_default_pepper_secret_dev_32char"),
     // "structured": the AI plans a designed deck (layouts, charts, notes) via the ai-service /files/deck endpoint.
     // "legacy": the chat answer is parsed into plain title+bullet slides (previous behavior).
     PPTX_MODE: z.enum(["structured", "legacy"]).default("structured"),

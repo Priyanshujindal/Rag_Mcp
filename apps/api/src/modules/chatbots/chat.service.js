@@ -12,6 +12,7 @@ import { Conversation, Message } from "../../db/models/index.js";
 import aiClient from "../../services/ai-client.js";
 import AppError from "../../utils/app-error.js";
 import logger from "../../utils/logger.js";
+import usageService from "../usage/usage.service.js";
 
 /**
  * Format an SSE frame for writing to response stream
@@ -34,10 +35,13 @@ export const chatService = {
    * @param {import("express").Response} res - Express response object to stream to
    * @param {import("express").Request} req - Express request object for close listener
    */
-  async streamChatTurn({ chatbot, workspaceId, userId = null, message, conversationId = null, options = {} }, res, req) {
+  async streamChatTurn({ chatbot, workspaceId, userId = null, visitorId = null, message, conversationId = null, options = {} }, res, req) {
     if (!chatbot.knowledgeBaseId) {
       throw AppError.badRequest("Chatbot does not have an attached knowledge base");
     }
+
+    // Server-side quota assertion
+    await usageService.assertQuota(workspaceId, "chatRequests", 1);
 
     const startTime = Date.now();
 
@@ -54,6 +58,7 @@ export const chatService = {
         workspaceId,
         chatbotId: chatbot._id,
         userId,
+        visitorId,
         title,
       });
     }
@@ -162,6 +167,22 @@ export const chatService = {
         },
         latencyMs,
       });
+
+      usageService.recordEvent({
+        workspaceId,
+        userId,
+        eventType: "ai.chat",
+        category: "ai",
+        status: "success",
+        tokens: {
+          promptTokens: capturedUsage.prompt_tokens || 0,
+          completionTokens: capturedUsage.completion_tokens || 0,
+          totalTokens: capturedUsage.total_tokens || 0,
+        },
+        chatbotId: chatbot._id,
+        model: options.model || null,
+        durationMs: latencyMs,
+      });
     } catch (err) {
       if (abortController.signal.aborted || err.name === "AbortError") {
         logger.info({ workspaceId, chatbotId: chatbot._id }, "Chat stream aborted by client");
@@ -177,6 +198,147 @@ export const chatService = {
         res.end();
       }
     }
+  },
+
+  /**
+   * Synchronous / non-streaming chat turn execution
+   * Accumulates tokens and returns the complete assistant message payload
+   */
+  async executeChatTurn({ chatbot, workspaceId, userId = null, visitorId = null, message, conversationId = null, options = {} }) {
+    if (!chatbot.knowledgeBaseId) {
+      throw AppError.badRequest("Chatbot does not have an attached knowledge base");
+    }
+
+    // Server-side quota assertion
+    await usageService.assertQuota(workspaceId, "chatRequests", 1);
+
+    const startTime = Date.now();
+
+    // 1. Resolve or create Conversation
+    let conversation = null;
+    if (conversationId) {
+      conversation = await Conversation.findOne({ _id: conversationId, workspaceId });
+      if (!conversation) {
+        throw AppError.notFound("Conversation not found in this workspace");
+      }
+    } else {
+      const title = message.trim().slice(0, 60) || "New Conversation";
+      conversation = await Conversation.create({
+        workspaceId,
+        chatbotId: chatbot._id,
+        userId,
+        visitorId,
+        title,
+      });
+    }
+
+    // 2. Fetch recent conversation history
+    const historyDocs = await Message.find({
+      conversationId: conversation._id,
+      workspaceId,
+    })
+      .sort({ createdAt: 1 })
+      .limit(20);
+
+    const history = historyDocs.map((doc) => ({
+      role: doc.role.toLowerCase(),
+      content: doc.content,
+    }));
+
+    // 3. Save User message to database
+    await Message.create({
+      workspaceId,
+      conversationId: conversation._id,
+      role: "USER",
+      content: message,
+    });
+
+    let assistantText = "";
+    let capturedCitations = [];
+    let capturedUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+
+    const aiPayload = {
+      knowledgeBaseId: chatbot.knowledgeBaseId.toString(),
+      message,
+      conversationId: conversation._id.toString(),
+      history,
+      custom_prompt: chatbot.config?.systemPrompt || null,
+      model: options.model || null,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.max_tokens ?? 1024,
+      top_k: options.top_k ?? 5,
+      strategy: options.strategy || "auto",
+    };
+
+    await aiClient.streamChat(workspaceId.toString(), aiPayload, {
+      onCitations: (citations) => {
+        capturedCitations = citations;
+      },
+      onToken: (token) => {
+        assistantText += token;
+      },
+      onUsage: (usage) => {
+        capturedUsage = usage;
+      },
+      onDone: () => {},
+      onError: (err) => {
+        logger.error({ err: err?.message }, "Error during synchronous AI turn");
+      },
+    });
+
+    const latencyMs = Date.now() - startTime;
+    const formattedCitations = (capturedCitations || []).map((c) => ({
+      title: c.title || "",
+      url: c.url || "",
+      chunkId: c.sourceId || "",
+      snippet: c.snippet || "",
+      score: 0,
+    }));
+
+    const assistantMsg = await Message.create({
+      workspaceId,
+      conversationId: conversation._id,
+      role: "ASSISTANT",
+      content: assistantText,
+      citations: formattedCitations,
+      tokenUsage: {
+        promptTokens: capturedUsage.prompt_tokens || 0,
+        completionTokens: capturedUsage.completion_tokens || 0,
+        totalTokens: capturedUsage.total_tokens || 0,
+      },
+      latencyMs,
+    });
+
+    usageService.recordEvent({
+      workspaceId,
+      userId,
+      eventType: "ai.chat",
+      category: "ai",
+      status: "success",
+      tokens: {
+        promptTokens: capturedUsage.prompt_tokens || 0,
+        completionTokens: capturedUsage.completion_tokens || 0,
+        totalTokens: capturedUsage.total_tokens || 0,
+      },
+      chatbotId: chatbot._id,
+      model: options.model || null,
+      durationMs: latencyMs,
+    });
+
+    return {
+      message: {
+        id: assistantMsg._id.toString(),
+        role: "assistant",
+        content: assistantText,
+        citations: formattedCitations,
+        createdAt: assistantMsg.createdAt,
+      },
+      conversationId: conversation._id.toString(),
+      usage: {
+        inputTokens: capturedUsage.prompt_tokens || 0,
+        outputTokens: capturedUsage.completion_tokens || 0,
+      },
+    };
   },
 };
 

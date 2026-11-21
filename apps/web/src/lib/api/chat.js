@@ -64,7 +64,9 @@ export async function streamChatMessage({
         conversationId: conversationId || undefined,
         provider,
         model: model || (
-          provider === "groq"
+          provider === "cloudflare"
+            ? "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+            : provider === "groq"
             ? "qwen/qwen3.8-27b"
             : provider === "openrouter"
             ? "nvidia/nemotron-3-ultra-550b-a55b:free"
@@ -342,6 +344,7 @@ export async function approveMcpTool({
     const reader = res.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
+    let currentEvent = "";
 
     while (true) {
       const { done, value } = await reader.read();
@@ -354,30 +357,62 @@ export async function approveMcpTool({
       for (const line of lines) {
         if (!line.trim()) continue;
 
+        if (line.startsWith("event: ")) {
+          currentEvent = line.slice(7).trim();
+          continue;
+        }
+
         if (line.startsWith("data: ")) {
           const data = line.slice(6).trim();
           try {
             const parsed = JSON.parse(data);
-            if (currentEvent === "artifact" || parsed?.type === "artifact") {
-              onChunk && onChunk({
-                type: "artifact",
-                artifact: parsed,
-              });
+
+            if (currentEvent === "done" || parsed?.done) {
               continue;
             }
 
-            if (parsed.delta) {
-              onChunk && onChunk({ type: "token", delta: parsed.delta });
-            } else if (parsed.toolResult || parsed.result) {
+            if (currentEvent === "artifact" || parsed?.type === "artifact") {
+              onChunk &&
+                onChunk({
+                  type: "artifact",
+                  artifact: parsed,
+                });
+              continue;
+            }
+
+            if (currentEvent === "token" || parsed.delta !== undefined) {
+              onChunk && onChunk({ type: "token", delta: parsed.delta || "" });
+              continue;
+            }
+
+            if (
+              currentEvent === "tool_result" ||
+              parsed?.status === "completed" ||
+              parsed?.result !== undefined ||
+              parsed?.toolResult !== undefined
+            ) {
               onChunk &&
                 onChunk({
                   type: "tool_result",
-                  toolCallId,
-                  result: parsed.toolResult || parsed.result,
+                  toolCallId: parsed.toolCallId || toolCallId,
+                  result: parsed.result || parsed.toolResult || parsed,
                   status: "completed",
                 });
+              continue;
             }
-          } catch {}
+
+            if (currentEvent === "tool_call" || parsed?.status === "executing") {
+              onChunk &&
+                onChunk({
+                  type: "tool_call",
+                  toolCallId: parsed.toolCallId || toolCallId,
+                  status: "executing",
+                });
+              continue;
+            }
+          } catch (parseErr) {
+            console.warn("Failed to parse approve-tool SSE line:", parseErr);
+          }
         }
       }
     }
