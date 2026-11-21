@@ -22,7 +22,7 @@ def test_config_loads_defaults():
     assert settings.CRAWL_MAX_DEPTH == 3
     assert settings.MAX_FILE_MB == 10
     assert settings.MAX_CHUNKS_PER_WORKSPACE == 5000
-    assert settings.ESTIMATED_DB_CAPACITY_MB == 400
+    assert settings.ESTIMATED_DB_CAPACITY_MB == 512
 
 
 def test_safety_guard_rejects_test_db_without_test_suffix():
