@@ -114,6 +114,7 @@ Thumbs.db
 [Dd]esktop.ini
 
 # IDEs & Editors
+.kiro/
 .idea/
 .vscode/*
 !.vscode/settings.json
