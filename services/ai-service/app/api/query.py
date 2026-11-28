@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
+from app.core.cag_cache import cag_cache
 from app.core.logging import logger
 from app.core.tenant import TenantContext, require_workspace_id, verify_internal_key
 from app.rag.prompt_builder import PromptBuilder, estimate_token_count, ChatMessage
@@ -84,6 +85,22 @@ async def retrieve(
         },
     )
 
+    source_id_strs = [str(s) for s in source_ids] if source_ids else None
+    cached_ret = await cag_cache.get_cached_retrieval(
+        workspace_id=str(workspace_id),
+        kb_id=str(kb_id),
+        query=body.query,
+        top_n=body.top_n,
+        top_k=body.top_k,
+        min_score_threshold=body.min_score_threshold,
+        strategy=body.strategy,
+        vector_weight=body.vector_weight,
+        text_weight=body.text_weight,
+        source_ids=source_id_strs,
+    )
+    if cached_ret is not None:
+        return RetrieveResponse(**cached_ret)
+
     try:
         response = await retriever.retrieve(
             workspace_id=workspace_id,
@@ -96,6 +113,19 @@ async def retrieve(
             vector_weight=body.vector_weight,
             text_weight=body.text_weight,
             source_ids=source_ids,
+        )
+        await cag_cache.set_cached_retrieval(
+            response.model_dump(mode="json"),
+            workspace_id=str(workspace_id),
+            kb_id=str(kb_id),
+            query=body.query,
+            top_n=body.top_n,
+            top_k=body.top_k,
+            min_score_threshold=body.min_score_threshold,
+            strategy=body.strategy,
+            vector_weight=body.vector_weight,
+            text_weight=body.text_weight,
+            source_ids=source_id_strs,
         )
     except Exception as exc:
         logger.exception(f"Retrieval failed: {exc}")
@@ -142,13 +172,65 @@ async def chat(
         },
     )
 
+    attached_docs = []
+    if body.attached_documents:
+        attached_docs.extend([d for d in body.attached_documents if d and d.get("content")])
+    elif body.attached_document and body.attached_document.get("content"):
+        attached_docs.append(body.attached_document)
+
+    source_id_strs = [str(s) for s in source_ids] if source_ids else None
+    cag_eligible = (
+        body.use_cache
+        and not is_general
+        and kb_id is not None
+        and len(body.history) == 0
+        and not body.web_search
+        and len(attached_docs) == 0
+    )
+
+    if cag_eligible:
+        cached_chat = await cag_cache.get_cached_chat_response(
+            workspace_id=str(workspace_id),
+            kb_id=str(kb_id),
+            query=body.message,
+            model=body.model,
+            provider=body.provider,
+            custom_prompt=body.custom_prompt,
+            top_k=body.top_k,
+            strategy=body.strategy,
+            min_score_threshold=body.min_score_threshold,
+            source_ids=source_id_strs,
+            is_thinking=body.is_thinking,
+        )
+        if cached_chat is not None:
+            async def cached_sse_stream() -> AsyncGenerator[str, None]:
+                yield format_sse("citations", cached_chat.get("citations", []))
+                answer_text = cached_chat.get("answer", "")
+                for i in range(0, len(answer_text), 48):
+                    yield format_sse("token", {"delta": answer_text[i : i + 48]})
+                usage_payload = dict(cached_chat.get("usage") or {})
+                usage_payload["cached"] = True
+                yield format_sse("usage", usage_payload)
+                yield format_sse("done", {})
+
+            return StreamingResponse(
+                cached_sse_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                    "X-CAG-Cache": "HIT",
+                },
+            )
+
     retrieval_res = None
     if not is_general and kb_id:
-        # 1. Retrieve context for RAG mode
+        # 1. Retrieve context for RAG mode (using CAG retrieval cache when available)
         try:
-            retrieval_res = await retriever.retrieve(
-                workspace_id=workspace_id,
-                kb_id=kb_id,
+            cached_ret = await cag_cache.get_cached_retrieval(
+                workspace_id=str(workspace_id),
+                kb_id=str(kb_id),
                 query=body.message,
                 top_n=body.top_k * 3,
                 top_k=body.top_k,
@@ -156,8 +238,36 @@ async def chat(
                 strategy=body.strategy,
                 vector_weight=body.vector_weight,
                 text_weight=body.text_weight,
-                source_ids=source_ids,
+                source_ids=source_id_strs,
             )
+            if cached_ret is not None:
+                retrieval_res = RetrieveResponse(**cached_ret)
+            else:
+                retrieval_res = await retriever.retrieve(
+                    workspace_id=workspace_id,
+                    kb_id=kb_id,
+                    query=body.message,
+                    top_n=body.top_k * 3,
+                    top_k=body.top_k,
+                    min_score_threshold=body.min_score_threshold,
+                    strategy=body.strategy,
+                    vector_weight=body.vector_weight,
+                    text_weight=body.text_weight,
+                    source_ids=source_ids,
+                )
+                await cag_cache.set_cached_retrieval(
+                    retrieval_res.model_dump(mode="json"),
+                    workspace_id=str(workspace_id),
+                    kb_id=str(kb_id),
+                    query=body.message,
+                    top_n=body.top_k * 3,
+                    top_k=body.top_k,
+                    min_score_threshold=body.min_score_threshold,
+                    strategy=body.strategy,
+                    vector_weight=body.vector_weight,
+                    text_weight=body.text_weight,
+                    source_ids=source_id_strs,
+                )
         except Exception as exc:
             logger.exception(f"Retrieval error in chat: {exc}")
             raise HTTPException(
@@ -179,12 +289,6 @@ async def chat(
             logger.warning(f"Live web search failed: {exc}")
 
     # 3. Build prompt (general conversation vs RAG grounded, incorporating live web facts & ad-hoc files)
-    attached_docs = []
-    if body.attached_documents:
-        attached_docs.extend([d for d in body.attached_documents if d and d.get("content")])
-    elif body.attached_document and body.attached_document.get("content"):
-        attached_docs.append(body.attached_document)
-
     prompt_builder = PromptBuilder()
     built = prompt_builder.build_chat_prompt(
         query=body.message,
@@ -249,6 +353,7 @@ async def chat(
 
         token_count = 0
         final_usage = None
+        answer_chunks: list[str] = []
 
         try:
             async for chunk in provider.stream_chat(
@@ -264,6 +369,7 @@ async def chat(
 
                 if chunk.delta:
                     token_count += 1
+                    answer_chunks.append(chunk.delta)
                     yield format_sse("token", {"delta": chunk.delta})
 
                 if chunk.usage:
@@ -278,6 +384,26 @@ async def chat(
                     prompt_tokens=prompt_toks,
                     completion_tokens=token_count,
                     total_tokens=prompt_toks + token_count,
+                )
+
+            if cag_eligible and answer_chunks:
+                await cag_cache.set_cached_chat_response(
+                    {
+                        "answer": "".join(answer_chunks),
+                        "citations": citations_payload,
+                        "usage": final_usage.model_dump(),
+                    },
+                    workspace_id=str(workspace_id),
+                    kb_id=str(kb_id),
+                    query=body.message,
+                    model=body.model,
+                    provider=body.provider,
+                    custom_prompt=body.custom_prompt,
+                    top_k=body.top_k,
+                    strategy=body.strategy,
+                    min_score_threshold=body.min_score_threshold,
+                    source_ids=source_id_strs,
+                    is_thinking=body.is_thinking,
                 )
 
             yield format_sse("usage", final_usage.model_dump())
@@ -387,4 +513,37 @@ async def parse_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "PARSE_ERROR", "message": str(exc)},
         )
+
+
+@router.get("/cache/stats", summary="CAG cache hit/miss statistics")
+async def get_cag_cache_stats(
+    _key: str = Depends(verify_internal_key),
+):
+    """Returns CAG retrieval and response cache hit/miss counters."""
+    return {
+        "enabled": get_settings().CAG_ENABLED,
+        "redisConfigured": bool(get_settings().REDIS_URL),
+        "stats": cag_cache.stats,
+    }
+
+
+@router.post("/cache/invalidate/{knowledge_base_id}", summary="Invalidate CAG cache for a KB")
+async def invalidate_kb_cache(
+    knowledge_base_id: str,
+    _key: str = Depends(verify_internal_key),
+    ws_id: ObjectId = Depends(require_workspace_id),
+):
+    """Bumps the KB version counter so stale retrieval/chat entries are invalidated."""
+    if not ObjectId.is_valid(knowledge_base_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "VALIDATION_ERROR", "message": "Invalid knowledge_base_id"},
+        )
+    new_version = await cag_cache.invalidate_kb(str(ws_id), knowledge_base_id)
+    return {
+        "workspaceId": str(ws_id),
+        "knowledgeBaseId": knowledge_base_id,
+        "version": new_version,
+    }
+
 

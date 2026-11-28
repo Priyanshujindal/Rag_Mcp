@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8001)
 
+    # Redis & CAG (Cache-Augmented Generation)
+    REDIS_URL: str = Field(default="", description="Optional Redis URL for distributed CAG caching")
+    CAG_ENABLED: bool = Field(default=True, description="Enable Cache-Augmented Generation (CAG)")
+    CAG_RETRIEVAL_TTL_SECONDS: int = Field(default=900, ge=10, description="TTL for cached retrieval results")
+    CAG_RESPONSE_TTL_SECONDS: int = Field(default=1800, ge=10, description="TTL for cached CAG chat answers")
+
     @field_validator("MONGODB_URI")
     @classmethod
     def validate_mongodb_uri(cls, v: str) -> str:

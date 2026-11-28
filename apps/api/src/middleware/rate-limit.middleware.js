@@ -1,16 +1,109 @@
 import rateLimit from "express-rate-limit";
 import config from "../config/index.js";
+import { getRedisClient } from "../lib/redis.js";
+
+/**
+ * Hybrid rate-limiter store for express-rate-limit v7.
+ * Uses Redis (atomic INCR + PEXPIRE) when connected, and automatically falls back
+ * to an in-memory window map when Redis is offline or in test mode.
+ */
+class HybridRedisRateLimitStore {
+  constructor(prefix, windowMs = 15 * 60 * 1000) {
+    this.prefix = prefix;
+    this.windowMs = windowMs;
+    this.localHits = new Map();
+  }
+
+  init(options) {
+    if (options?.windowMs) {
+      this.windowMs = options.windowMs;
+    }
+  }
+
+  _fullKey(key) {
+    return `${this.prefix}${key}`;
+  }
+
+  async increment(key) {
+    const fullKey = this._fullKey(key);
+    const client = getRedisClient();
+
+    if (client) {
+      try {
+        const results = await client.multi().incr(fullKey).pttl(fullKey).exec();
+        const totalHits = Number(results?.[0]?.[1] ?? 1);
+        let pttl = Number(results?.[1]?.[1] ?? -1);
+
+        if (pttl < 0) {
+          await client.pexpire(fullKey, this.windowMs);
+          pttl = this.windowMs;
+        }
+
+        return {
+          totalHits,
+          resetTime: new Date(Date.now() + pttl),
+        };
+      } catch {
+        // Fall through to in-memory store if Redis command fails
+      }
+    }
+
+    const now = Date.now();
+    const existing = this.localHits.get(fullKey);
+    if (!existing || existing.resetAt <= now) {
+      const entry = { count: 1, resetAt: now + this.windowMs };
+      this.localHits.set(fullKey, entry);
+      return { totalHits: 1, resetTime: new Date(entry.resetAt) };
+    }
+
+    existing.count += 1;
+    return { totalHits: existing.count, resetTime: new Date(existing.resetAt) };
+  }
+
+  async decrement(key) {
+    const fullKey = this._fullKey(key);
+    const client = getRedisClient();
+
+    if (client) {
+      try {
+        await client.decr(fullKey);
+        return;
+      } catch {
+        // Fall through to in-memory store
+      }
+    }
+
+    const existing = this.localHits.get(fullKey);
+    if (existing && existing.count > 0) {
+      existing.count -= 1;
+    }
+  }
+
+  async resetKey(key) {
+    const fullKey = this._fullKey(key);
+    this.localHits.delete(fullKey);
+    const client = getRedisClient();
+    if (client) {
+      try {
+        await client.del(fullKey);
+      } catch {
+        // Ignore
+      }
+    }
+  }
+}
 
 /**
  * Factory for rate-limiter storage engine.
- * Currently returns undefined to use express-rate-limit's default in-memory store.
- * Can be swapped for a distributed Redis store (e.g. rate-limit-redis) when scaling horizontally.
- * @param {string} _prefix - Key prefix namespace for the store
- * @returns {undefined | object}
+ * Uses Redis when connected and falls back cleanly to in-memory storage.
+ * @param {string} prefix - Key prefix namespace for the store
+ * @returns {HybridRedisRateLimitStore | undefined}
  */
-export function createLimiterStore(_prefix) {
-  // Can be swapped for Redis: return new RedisStore({ prefix: _prefix, ... })
-  return undefined;
+export function createLimiterStore(prefix) {
+  if (config.NODE_ENV === "test") {
+    return undefined;
+  }
+  return new HybridRedisRateLimitStore(prefix);
 }
 
 /**

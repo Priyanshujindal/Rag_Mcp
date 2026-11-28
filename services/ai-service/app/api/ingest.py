@@ -3,6 +3,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from pymongo.asynchronous.database import AsyncDatabase
 
 from app.core.config import get_settings
+from app.core.cag_cache import cag_cache
 from app.core.logging import logger
 from app.core.tenant import parse_object_id, require_tenant, TenantContext
 from app.ingestion.pipeline import run_ingestion_pipeline
@@ -79,6 +80,9 @@ async def ingest_source(
         is_url=is_url,
     )
 
+    # Invalidate CAG cache for this KB so updated documents are never shadowed by stale answers
+    await cag_cache.invalidate_kb(str(tenant.workspace_id), str(payload.knowledgeBaseId))
+
     return IngestResponse(
         status="accepted",
         message="Ingestion pipeline job accepted and running in background.",
@@ -131,6 +135,8 @@ async def delete_knowledge_base_chunks(
         f"Deleted {result.deleted_count} chunks for knowledge base {knowledgeBaseId}",
         extra={"workspaceId": str(tenant.workspace_id), "knowledgeBaseId": knowledgeBaseId},
     )
+
+    await cag_cache.invalidate_kb(str(tenant.workspace_id), knowledgeBaseId)
 
     return DeleteResponse(
         deletedCount=result.deleted_count,

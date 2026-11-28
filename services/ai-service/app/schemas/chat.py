@@ -38,6 +38,7 @@ class ChatRequest(BaseModel):
     vector_weight: float = Field(default=0.6, ge=0.0, le=1.0)
     text_weight: float = Field(default=0.4, ge=0.0, le=1.0)
     source_ids: Optional[List[str]] = Field(default=None)
+    use_cache: bool = Field(default=True, alias="useCache", description="Enable CAG cache lookup/storage")
 
     @field_validator("knowledgeBaseId")
     @classmethod

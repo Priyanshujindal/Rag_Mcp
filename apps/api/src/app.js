@@ -14,6 +14,7 @@ import { notFoundHandler, errorHandler } from "./middleware/error.middleware.js"
 import { noSqlDefenseMiddleware } from "./middleware/nosql-defense.middleware.js";
 import { validate, objectIdSchema } from "./middleware/validation.middleware.js";
 import { initObservability } from "./utils/observability.js";
+import { initRedis, isRedisReady } from "./lib/redis.js";
 
 // Module routes
 import authRoutes from "./modules/auth/auth.routes.js";
@@ -38,6 +39,7 @@ import teamRoutes from "./modules/team/team.routes.js";
  */
 export function createApp() {
   initObservability();
+  void initRedis();
   const app = express();
 
   // 0. Trust Proxy (never trust X-Forwarded-For by default)
@@ -138,6 +140,7 @@ export function createApp() {
       return res.status(200).json({
         status: "ready",
         db: "connected",
+        redis: isRedisReady() ? "connected" : "fallback",
       });
     } catch (err) {
       return res.status(503).json({

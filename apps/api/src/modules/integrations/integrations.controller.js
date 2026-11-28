@@ -4,9 +4,7 @@ import { INTEGRATIONS_CATALOG, getIntegrationById } from "./catalog.js";
 import { getConnector } from "./connectors/index.js";
 import AppError from "../../utils/app-error.js";
 import logger from "../../utils/logger.js";
-
-// In-memory OAuth state cache (TTL: 10 mins)
-const oauthStateCache = new Map();
+import { cacheSet, cacheGet, cacheDel } from "../../lib/redis.js";
 
 export class IntegrationsController {
   /**
@@ -108,20 +106,17 @@ export class IntegrationsController {
       const connector = getConnector(id);
       const state = crypto.randomBytes(24).toString("hex");
 
-      // Cache state with user & workspace context
-      oauthStateCache.set(state, {
-        integrationId: id,
-        workspaceId: workspaceId.toString(),
-        userId: userId.toString(),
-        createdAt: Date.now(),
-      });
-
-      // Cleanup states older than 10 mins
-      for (const [k, v] of oauthStateCache.entries()) {
-        if (Date.now() - v.createdAt > 10 * 60 * 1000) {
-          oauthStateCache.delete(k);
-        }
-      }
+      // Cache state in Redis (with in-memory fallback) for 10 mins
+      await cacheSet(
+        `oauth:state:${state}`,
+        {
+          integrationId: id,
+          workspaceId: workspaceId.toString(),
+          userId: userId.toString(),
+          createdAt: Date.now(),
+        },
+        600
+      );
 
       const effectiveRedirect = redirectUri || `${req.protocol}://${req.get("host")}/api/v1/integrations/${id}/callback`;
       const authUrl = connector.getAuthUrl({
@@ -154,12 +149,14 @@ export class IntegrationsController {
       if (!code) throw AppError.badRequest("Authorization code is required.");
 
       // If state was provided, validate against state cache
-      if (state && oauthStateCache.has(state)) {
-        const cached = oauthStateCache.get(state);
-        if (cached.integrationId !== id || cached.userId !== userId.toString()) {
-          throw AppError.forbidden("OAuth state verification mismatch.");
+      if (state) {
+        const cached = await cacheGet(`oauth:state:${state}`);
+        if (cached) {
+          if (cached.integrationId !== id || cached.userId !== userId.toString()) {
+            throw AppError.forbidden("OAuth state verification mismatch.");
+          }
+          await cacheDel(`oauth:state:${state}`);
         }
-        oauthStateCache.delete(state);
       }
 
       const connector = getConnector(id);
