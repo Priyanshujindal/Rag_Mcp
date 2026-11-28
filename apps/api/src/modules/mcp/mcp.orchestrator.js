@@ -7,6 +7,7 @@
  * - Enforces permissions, rate limits, schema validation, and human-in-the-loop approvals
  * - Dispatches execution via McpClientManager
  * - Records execution telemetry in MongoDB McpExecution collection
+ * - Provides dynamic multi-turn agentic tool calling loop for AI models
  */
 
 import crypto from "crypto";
@@ -105,6 +106,9 @@ export class McpOrchestrator {
     const seenNames = new Set();
 
     for (const srv of servers) {
+      // Disconnect servers marked as DISCONNECTED
+      if (srv.status === "DISCONNECTED") continue;
+
       let serverTools = srv.tools || [];
 
       // If server has no cached tools, attempt dynamic discovery
@@ -119,6 +123,7 @@ export class McpOrchestrator {
               enabled: true,
               permission: t.name.includes("sql") || t.name.includes("delete") || t.name.includes("write") ? "always_ask" : "auto",
               requiresApproval: t.name.includes("sql") || t.name.includes("delete") || t.name.includes("write"),
+              lastDiscoveredAt: new Date(),
             }));
             srv.status = "CONNECTED";
             srv.healthStatus = "healthy";
@@ -134,11 +139,11 @@ export class McpOrchestrator {
       for (const t of serverTools) {
         if (!t.enabled || t.permission === "deny") continue;
 
-        let toolName = t.name;
+        let toolName = t.name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
         if (seenNames.has(toolName)) {
           // Collision resolution: prefix with sanitized server name
-          const prefix = srv.name.toLowerCase().replace(/[^a-z0-9]/g, "_");
-          toolName = `${prefix}_${t.name}`;
+          const prefix = srv.name.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 20);
+          toolName = `${prefix}_${toolName}`.slice(0, 64);
         }
         seenNames.add(toolName);
 
@@ -146,13 +151,16 @@ export class McpOrchestrator {
           id: `${srv._id}:${t.name}`,
           name: toolName,
           originalName: t.name,
-          description: t.description || "",
-          inputSchema: t.inputSchema || { type: "object", properties: {} },
+          description: t.description || `Execute ${t.name} on ${srv.name}`,
+          inputSchema: t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : { type: "object", properties: {} },
           serverId: srv._id.toString(),
           serverName: srv.name,
+          enabled: t.enabled !== false,
           requiresApproval: t.requiresApproval || t.permission === "always_ask",
-          permission: t.permission || "auto",
+          permission: t.permission || (t.requiresApproval ? "always_ask" : "auto"),
           serverConfig: srv,
+          lastExecutionStatus: t.lastExecutionStatus || null,
+          lastExecutedAt: t.lastExecutedAt || null,
         });
       }
     }
@@ -161,9 +169,14 @@ export class McpOrchestrator {
     try {
       const appTools = await IntegrationsAdapter.getConnectedTools(workspaceId, userId);
       for (const at of appTools) {
-        if (!seenNames.has(at.name)) {
-          seenNames.add(at.name);
-          activeTools.push(at);
+        let aName = at.name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+        if (!seenNames.has(aName)) {
+          seenNames.add(aName);
+          activeTools.push({
+            ...at,
+            name: aName,
+            id: at.id || `integration:${aName}`,
+          });
         }
       }
     } catch (appErr) {
@@ -194,11 +207,18 @@ export class McpOrchestrator {
     if (!tools || tools.length === 0) return undefined;
     return [
       {
-        functionDeclarations: tools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          parameters: t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : { type: "object", properties: {} },
-        })),
+        functionDeclarations: tools.map((t) => {
+          let schema = t.inputSchema;
+          // Ensure schema has type object for Gemini
+          if (!schema || typeof schema !== "object" || !schema.type) {
+            schema = { type: "object", properties: {} };
+          }
+          return {
+            name: t.name,
+            description: t.description || `Tool: ${t.name}`,
+            parameters: schema,
+          };
+        }),
       },
     ];
   }
@@ -217,7 +237,13 @@ export class McpOrchestrator {
   }) {
     const startTime = Date.now();
     const tools = await this.getActiveTools(workspaceId, userId);
-    const matched = tools.find((t) => t.name === toolName || t.originalName === toolName);
+    const matched = tools.find(
+      (t) =>
+        t.name === toolName ||
+        t.originalName === toolName ||
+        t.id === toolName ||
+        (typeof toolName === "string" && t.id?.endsWith(`:${toolName}`))
+    );
 
     if (!matched) {
       throw new Error(`Tool "${toolName}" is not registered or is disabled in this workspace.`);
@@ -291,13 +317,26 @@ export class McpOrchestrator {
 
     const durationMs = Date.now() - startTime;
 
+    // Update execution status on the tool in the server document
+    if (matched.serverConfig?._id) {
+      McpServer.updateOne(
+        { _id: matched.serverConfig._id, "tools.name": matched.originalName },
+        {
+          $set: {
+            "tools.$.lastExecutionStatus": executionStatus,
+            "tools.$.lastExecutedAt": new Date(),
+          },
+        }
+      ).catch(() => {});
+    }
+
     // Persist audit record in MongoDB
     try {
       await McpExecution.create({
         workspaceId,
         userId,
         conversationId,
-        serverId: matched.serverConfig._id,
+        serverId: matched.serverConfig?._id,
         serverName: matched.serverName,
         toolName: matched.name,
         args,

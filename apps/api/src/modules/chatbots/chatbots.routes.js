@@ -3,6 +3,7 @@ import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { tenantGuard } from "../../middleware/tenant-guard.middleware.js";
+import { requireRole } from "../../middleware/rbac.middleware.js";
 import { validate, objectIdSchema } from "../../middleware/validation.middleware.js";
 import { enforceQuota } from "../../middleware/quota-guard.middleware.js";
 import chatbotsController from "./chatbots.controller.js";
@@ -35,6 +36,7 @@ const createChatbotSchema = z
         suggestedQuestions: z.array(z.string()).optional(),
         position: z.enum(["bottom-right", "bottom-left"]).optional(),
         primaryColor: z.string().optional(),
+        model: z.string().optional(),
       })
       .optional(),
     allowedOrigins: z.array(z.string()).optional(),
@@ -54,6 +56,7 @@ const updateChatbotSchema = z
         suggestedQuestions: z.array(z.string()).optional(),
         position: z.enum(["bottom-right", "bottom-left"]).optional(),
         primaryColor: z.string().optional(),
+        model: z.string().optional(),
       })
       .optional(),
     allowedOrigins: z.array(z.string()).optional(),
@@ -81,6 +84,7 @@ router.use(authenticate, tenantGuard);
 router.get("/", chatbotsController.list);
 router.post(
   "/",
+  requireRole("OWNER", "ADMIN", "MEMBER"),
   enforceQuota("chatbots"),
   validate({ body: createChatbotSchema }),
   chatbotsController.create
@@ -95,10 +99,11 @@ router.post(
 );
 router.patch(
   "/:id",
+  requireRole("OWNER", "ADMIN", "MEMBER"),
   validate({ params: idParamsSchema, body: updateChatbotSchema }),
   chatbotsController.update
 );
-router.delete("/:id", validate({ params: idParamsSchema }), chatbotsController.delete);
+router.delete("/:id", requireRole("OWNER", "ADMIN", "MEMBER"), validate({ params: idParamsSchema }), chatbotsController.delete);
 
 export default router;
 

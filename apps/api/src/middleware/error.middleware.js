@@ -1,6 +1,7 @@
 import AppError from "../utils/app-error.js";
 import logger from "../utils/logger.js";
 import config from "../config/index.js";
+import { captureException } from "../utils/observability.js";
 
 /**
  * 404 Not Found Middleware
@@ -68,7 +69,12 @@ export function errorHandler(err, _req, res, _next) {
 
   // Log internal server errors
   if (statusCode >= 500) {
-    logger.error({ err }, `[Server Error 500] ${err.message}`);
+    logger.error({ err, reqId: _req?.id }, `[Server Error 500] ${err.message}`);
+    captureException(err, {
+      reqId: _req?.id,
+      workspaceId: _req?.workspaceId,
+      path: _req?.originalUrl,
+    });
   }
 
   const response = {

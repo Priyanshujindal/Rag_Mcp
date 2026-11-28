@@ -1,16 +1,42 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { Plus, Bot, MessageSquare, Settings2, MoreHorizontal, Search, Filter, AlertCircle, RefreshCw } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  Plus,
+  Bot,
+  MessageSquare,
+  Settings2,
+  MoreHorizontal,
+  Search,
+  Filter,
+  AlertCircle,
+  RefreshCw,
+  Code2,
+  ExternalLink,
+  Power,
+  Trash2,
+  Palette,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { CardSkeleton } from "@/components/ui/skeleton";
-import { getMockChatbots } from "@/lib/api";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { getMockChatbots, updateChatbot, deleteChatbot } from "@/lib/api";
 
 function statusVariant(status) {
-  return status === "active" ? "success" : status === "draft" ? "neutral" : "warning";
+  return status?.toLowerCase() === "active" ? "success" : status?.toLowerCase() === "draft" ? "neutral" : "warning";
 }
 
-function BotCard({ bot }) {
+function BotCard({ bot, onToggleStatus, onDelete }) {
+  const navigate = useNavigate();
   const primaryColor = bot.config?.primaryColor || bot.theme?.primaryColor || "var(--accent)";
+  const isActive = (bot.status || "").toUpperCase() === "ACTIVE";
+  const botPublicId = bot.publicId || bot.id;
+
   return (
     <Link to={`/chatbots/${bot.id}`} className="bot-card">
       <div className="bot-card-header">
@@ -26,21 +52,56 @@ function BotCard({ bot }) {
             {bot.status}
           </Badge>
         </div>
-        <button
-          type="button"
-          className="btn btn-ghost btn-icon"
-          onClick={(e) => e.preventDefault()}
-          title="More options"
-          aria-label="More options"
+        <div
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
         >
-          <MoreHorizontal size={15} />
-        </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger>
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon"
+                title="More options"
+                aria-label="More options"
+              >
+                <MoreHorizontal size={15} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="right">
+              <DropdownMenuItem onClick={() => navigate(`/chatbots/${bot.id}?tab=customize`)}>
+                <Palette size={14} style={{ marginRight: "8px" }} />
+                Customize Appearance
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate(`/chatbots/${bot.id}?tab=embed`)}>
+                <Code2 size={14} style={{ marginRight: "8px" }} />
+                Get Embed Code
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => window.open(`/bot/${botPublicId}`, "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink size={14} style={{ marginRight: "8px" }} />
+                Open Public Bot
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onToggleStatus(bot)}>
+                <Power size={14} style={{ marginRight: "8px" }} />
+                {isActive ? "Pause Chatbot" : "Activate Chatbot"}
+              </DropdownMenuItem>
+              <DropdownMenuItem danger onClick={() => onDelete(bot)}>
+                <Trash2 size={14} style={{ marginRight: "8px" }} />
+                Delete Chatbot
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+        </div>
       </div>
 
       <p className="bot-card-desc">{bot.description}</p>
 
       <div className="bot-card-meta">
-        <span className="badge badge-neutral">{bot.model || "gpt-4o"}</span>
+        <span className="badge badge-neutral">{bot.config?.model || bot.model || "gemini-3.5-flash-lite"}</span>
         <span className="bot-card-meta-text">
           {(bot.knowledgeBaseIds || []).length} knowledge base{(bot.knowledgeBaseIds || []).length !== 1 ? "s" : ""}
         </span>
@@ -61,7 +122,11 @@ function BotCard({ bot }) {
           <button
             type="button"
             className="btn btn-ghost btn-icon"
-            onClick={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              navigate(`/chatbots/${bot.id}?tab=analytics`);
+            }}
             title="Analytics"
             aria-label="View analytics"
           >
@@ -70,7 +135,11 @@ function BotCard({ bot }) {
           <button
             type="button"
             className="btn btn-ghost btn-icon"
-            onClick={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              navigate(`/chatbots/${bot.id}?tab=settings`);
+            }}
             title="Settings"
             aria-label="Bot settings"
           >
@@ -106,6 +175,26 @@ export default function ChatbotsPage() {
   useEffect(() => {
     fetchBots();
   }, []);
+
+  const handleToggleStatus = async (bot) => {
+    const nextStatus = (bot.status || "").toUpperCase() === "ACTIVE" ? "PAUSED" : "ACTIVE";
+    try {
+      await updateChatbot(bot.id, { status: nextStatus });
+      fetchBots();
+    } catch (err) {
+      setError(err.message || "Failed to update chatbot status");
+    }
+  };
+
+  const handleDeleteBot = async (bot) => {
+    if (!window.confirm(`Are you sure you want to delete "${bot.name}"?`)) return;
+    try {
+      await deleteChatbot(bot.id);
+      setBots((prev) => prev.filter((b) => b.id !== bot.id));
+    } catch (err) {
+      setError(err.message || "Failed to delete chatbot");
+    }
+  };
 
   const filtered = bots.filter(
     (b) =>
@@ -202,7 +291,12 @@ export default function ChatbotsPage() {
         /* Bot cards grid */
         <div className="chatbots-grid">
           {filtered.map((bot) => (
-            <BotCard key={bot.id} bot={bot} />
+            <BotCard
+              key={bot.id}
+              bot={bot}
+              onToggleStatus={handleToggleStatus}
+              onDelete={handleDeleteBot}
+            />
           ))}
         </div>
       )}

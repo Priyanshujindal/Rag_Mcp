@@ -24,6 +24,7 @@ import {
   Pencil,
   Check,
   LayoutGrid,
+  Users,
   X,
 } from "lucide-react";
 import { getMockChatbots } from "@/lib/api";
@@ -46,6 +47,7 @@ const MAIN_NAV = [
   { href: "/mcp",             label: "MCP Plugins & Tools", icon: Wrench },
   { href: "/evals",           label: "RAG Evals",         icon: TestTube2 },
   { href: "/api-keys",        label: "API Keys",          icon: Key },
+  { href: "/team",            label: "Team & RBAC",       icon: Users },
   { href: "/usage",           label: "Usage & Limits",    icon: BarChart3 },
 ];
 
@@ -366,17 +368,19 @@ export function Sidebar({ isCollapsed, onToggleCollapse, mobileOpen, onCloseMobi
           <div>
             <div className="sidebar-section-label">Your Website Bots</div>
             <div className="sidebar-nav">
-              {bots.filter((b) => b.status === "active").map((bot) => (
+              {bots
+                .filter((b) => (b.status || "").toLowerCase() === "active")
+                .map((bot) => (
                 <Link
                   key={bot.id}
-                  to={`/?botId=${bot.id}`}
+                  to={`/chatbots/${bot.id}`}
                   className="sidebar-recent-link"
-                  title={`Chat with ${bot.name}`}
+                  title={`Open ${bot.name}`}
                   onClick={handleLinkClick}
                 >
                   <span
                     className="sidebar-bot-dot"
-                    style={{ "--bot-color": bot.theme?.primaryColor || "var(--accent)" }}
+                    style={{ "--bot-color": bot.config?.primaryColor || bot.theme?.primaryColor || "var(--accent)" }}
                   />
                   <span className="truncate-flex">
                     {bot.name}

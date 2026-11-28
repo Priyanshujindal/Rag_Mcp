@@ -2,11 +2,13 @@ import { Router } from "express";
 import multer from "multer";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { tenantGuard } from "../../middleware/tenant-guard.middleware.js";
+import { requireRole } from "../../middleware/rbac.middleware.js";
 import { Conversation, Message, Membership, KnowledgeBase, Artifact } from "../../db/models/index.js";
 import aiClient from "../../services/ai-client.js";
 import storageService from "../../services/storage.service.js";
 import titleGeneratorService from "../conversations/title-generator.service.js";
 import { McpOrchestrator } from "../mcp/mcp.orchestrator.js";
+import { runAgentToolLoop } from "../mcp/mcp.agent-loop.js";
 import FileIntentService from "./file-intent.service.js";
 import config from "../../config/index.js";
 import {
@@ -332,228 +334,12 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
       msg: "Direct chat request received",
     });
 
-    // 4.5. Check for active MCP tools & agentic intent
+    // 4.5. Check for active MCP tools
     const mcpTools = await McpOrchestrator.getActiveTools(workspaceId, req.user?.id);
-    let matchedTool = null;
-    let toolArgs = {};
 
-    const queryLower = message.trim().toLowerCase();
-    if (
-      queryLower.includes("select ") ||
-      queryLower.includes("from orders") ||
-      queryLower.includes("orders table") ||
-      queryLower.includes("customer table") ||
-      queryLower.includes("sql query") ||
-      queryLower.includes("database table") ||
-      queryLower.includes("check postgres")
-    ) {
-      const t = mcpTools.find((x) => x.name === "execute_readonly_sql");
-      if (t) {
-        matchedTool = t;
-        const sqlMatch = message.match(/select[\s\S]*?(?:;|$)/i);
-        toolArgs = {
-          query: sqlMatch ? sqlMatch[0].trim() : "SELECT * FROM orders WHERE status = 'PAID' LIMIT 5;",
-        };
-      }
-    } else if (
-      queryLower.startsWith("calculate") ||
-      queryLower.includes("calculate ") ||
-      queryLower.match(/\b\d+\s*[\+\-\*\/]\s*\d+\b/)
-    ) {
-      const t = mcpTools.find((x) => x.name === "calculate_metrics");
-      if (t) {
-        matchedTool = t;
-        const mathMatch = message.match(/\d[\d\.\(\)\+\-\*\/\s\%\,]*\d|\d+/);
-        toolArgs = {
-          expression: mathMatch ? mathMatch[0].replace(/,/g, "").trim() : "100 + 200",
-          description: "Calculated metric",
-        };
-      }
-    } else if (queryLower.includes("read file") || queryLower.includes("package.json") || queryLower.includes("read snippet")) {
-      const t = mcpTools.find((x) => x.name === "read_file_snippet");
-      if (t) {
-        matchedTool = t;
-        toolArgs = {
-          path: queryLower.includes("package.json") ? "package.json" : "README.md",
-          maxLines: 50,
-        };
-      }
-    } else if (queryLower.includes("list files") || queryLower.includes("list directory") || queryLower.includes("show directory")) {
-      const t = mcpTools.find((x) => x.name === "list_directory");
-      if (t) {
-        matchedTool = t;
-        toolArgs = { directory: "." };
-      }
-    } else if (
-      queryLower.includes("search web") ||
-      queryLower.includes("web search") ||
-      queryLower.includes("search online") ||
-      queryLower.includes("search google") ||
-      queryLower.includes("browse web")
-    ) {
-      const t = mcpTools.find((x) => x.name === "web_search_mcp");
-      if (t) {
-        matchedTool = t;
-        const searchMatch = message.replace(/(?:search|browse|look up)\s+(?:the\s+)?(?:web|online|internet)\s+(?:for\s+)?/i, "").trim();
-        toolArgs = { query: searchMatch || message.trim() };
-      }
-    } else if (
-      queryLower.includes("gmail") ||
-      queryLower.includes("email") ||
-      queryLower.includes("inbox")
-    ) {
-      if (queryLower.includes("send email") || queryLower.includes("send an email")) {
-        const t = mcpTools.find((x) => x.name === "gmail.send_email" || x.name === "gmail_send_email");
-        if (t) {
-          matchedTool = t;
-          const emailMatch = message.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-          toolArgs = {
-            to: emailMatch ? emailMatch[0] : "recipient@example.com",
-            subject: "Update from Rag_Mcp",
-            body: message,
-          };
-        }
-      } else {
-        const t = mcpTools.find((x) => x.name === "gmail.search_emails" || x.name === "gmail_search_emails");
-        if (t) {
-          matchedTool = t;
-          const cleanQ = message.replace(/(?:search|find|check|look for|my)\s+(?:gmail|email|emails|inbox)(?:\s+for)?/i, "").trim();
-          toolArgs = { query: cleanQ || "is:unread" };
-        }
-      }
-    } else if (
-      queryLower.includes("google drive") ||
-      queryLower.includes("in drive") ||
-      queryLower.includes("resume in drive") ||
-      queryLower.includes("drive files")
-    ) {
-      const t = mcpTools.find((x) => x.name === "google_drive.search_files" || x.name === "google_drive_search_files");
-      if (t) {
-        matchedTool = t;
-        const cleanQ = message.replace(/(?:search|find|read|check|look for|my)\s+(?:google\s+drive|drive|drive\s+files)(?:\s+for)?/i, "").trim();
-        toolArgs = { query: cleanQ || "resume" };
-      }
-    } else if (
-      queryLower.includes("calendar") ||
-      queryLower.includes("meetings") ||
-      queryLower.includes("schedule")
-    ) {
-      const t = mcpTools.find((x) => x.name === "google_calendar.list_events" || x.name === "google_calendar_list_events");
-      if (t) {
-        matchedTool = t;
-        toolArgs = {
-          timeMin: new Date().toISOString(),
-          maxResults: 15,
-        };
-      }
-    } else if (
-      queryLower.includes("notion") ||
-      queryLower.includes("notion workspace") ||
-      queryLower.includes("notion notes")
-    ) {
-      const t = mcpTools.find((x) => x.name === "notion.search" || x.name === "notion_search");
-      if (t) {
-        matchedTool = t;
-        const cleanQ = message.replace(/(?:search|find|check|look in|my)\s+(?:notion|notion\s+workspace|notion\s+notes)(?:\s+for)?/i, "").trim();
-        toolArgs = { query: cleanQ || "documentation" };
-      }
-    } else if (
-      queryLower.includes("github") ||
-      queryLower.includes("repositories") ||
-      queryLower.includes("repos") ||
-      /\b(repo|repos|repository|pull\s+requests?|prs?)\b/i.test(queryLower)
-    ) {
-      if (/\b(pull\s+requests?|prs?)\b/i.test(queryLower)) {
-        const t = mcpTools.find((x) => x.name === "github.list_pull_requests" || x.name === "github_list_pull_requests");
-        if (t) {
-          matchedTool = t;
-          toolArgs = { owner: "Priyanshujindal", repo: "Rag_Mcp", state: "open" };
-        }
-      } else if (/\b(issues?|bug\s+reports?)\b/i.test(queryLower)) {
-        const t = mcpTools.find((x) => x.name === "github.list_issues" || x.name === "github_list_issues");
-        if (t) {
-          matchedTool = t;
-          toolArgs = { owner: "Priyanshujindal", repo: "Rag_Mcp", state: "open" };
-        }
-      } else {
-        const t = mcpTools.find(
-          (x) =>
-            x.name === "github.list_repositories" ||
-            x.name === "github_list_repositories" ||
-            x.name === "list_repositories" ||
-            x.name === "github.list_repos"
-        );
-        if (t) {
-          matchedTool = t;
-          toolArgs = { visibility: "all" };
-        }
-      }
-    } else if (
-      queryLower.includes("slack") ||
-      queryLower.includes("channel") ||
-      queryLower.includes("#") ||
-      queryLower.includes("slack message")
-    ) {
-      if (
-        /\b(post|send|write|message)\b/i.test(queryLower) &&
-        (queryLower.includes("#") || queryLower.includes("channel") || queryLower.includes("slack"))
-      ) {
-        const t = mcpTools.find((x) => x.name === "slack.send_message" || x.name === "slack_send_message");
-        if (t) {
-          matchedTool = t;
-          const channelMatch = message.match(/#([a-zA-Z0-9_\-]+)/);
-          const channelName = channelMatch ? channelMatch[1] : "general";
-          const sayingMatch = message.match(/(?:saying|with text|message:?)\s*[:'"“]\s*(.*?)[!'”"]?$/i);
-          const cleanText = sayingMatch ? sayingMatch[1].replace(/['"“]+$/g, "") : message;
-          toolArgs = { channelId: channelName, text: cleanText };
-        }
-      } else if (/\b(channels?|list\s+channels|rooms?|public\s+channels|private\s+channels)\b/i.test(queryLower)) {
-        const t = mcpTools.find((x) => x.name === "slack.list_channels" || x.name === "slack_list_channels");
-        if (t) {
-          matchedTool = t;
-          toolArgs = {};
-        }
-      } else {
-        const t = mcpTools.find((x) => x.name === "slack.search_messages" || x.name === "slack_search_messages");
-        if (t) {
-          matchedTool = t;
-          const cleanQ = message.replace(/(?:search|check|look in|my)\s+(?:slack|slack\s+messages|slack\s+channels)(?:\s+for)?/i, "").trim();
-          toolArgs = { query: cleanQ || "project" };
-        }
-      }
-    } else if (
-      queryLower.includes("linear") ||
-      queryLower.includes("assigned to me") ||
-      queryLower.includes("linear tasks")
-    ) {
-      if (/\b(projects?|roadmaps?)\b/i.test(queryLower)) {
-        const t = mcpTools.find((x) => x.name === "linear.list_projects" || x.name === "linear_list_projects");
-        if (t) {
-          matchedTool = t;
-          toolArgs = {};
-        }
-      } else if (/\b(create\s+issue|new\s+issue|add\s+issue|create\s+task|new\s+task)\b/i.test(queryLower)) {
-        const t = mcpTools.find((x) => x.name === "linear.create_issue" || x.name === "linear_create_issue");
-        if (t) {
-          matchedTool = t;
-          const titleMatch = message.match(/(?:titled|title|named|called|issue:?)\s*[:'"“]\s*(.*?)[!'”"]?$/i);
-          toolArgs = {
-            title: titleMatch ? titleMatch[1] : message.replace(/.*(?:create|add|new)\s+(?:issue|task)(?:\s+in\s+linear)?(?:\s+titled)?/i, "").trim() || "New Issue from Rag_Mcp",
-            description: "Created via Rag_Mcp AI assistant",
-          };
-        }
-      } else {
-        const t = mcpTools.find((x) => x.name === "linear.search_issues" || x.name === "linear_search_issues");
-        if (t) {
-          matchedTool = t;
-          toolArgs = { query: message.trim() };
-        }
-      }
-    }
-
-    // Detect file generation intent (skip if an MCP tool was already matched)
+    // Detect file generation intent
     const fileIntent = FileIntentService.detectFileIntent(message);
-    if (!matchedTool && fileIntent.hasIntent) {
+    if (fileIntent.hasIntent) {
       // For large document / multi-page file requests, boost the token budget so
       // the LLM has enough room to produce full content (10-page docs need 8k+ tokens).
       aiPayload.max_tokens = 8192;
@@ -610,89 +396,28 @@ router.post("/", authenticate, tenantGuard, async (req, res, next) => {
       })}\n\n`
     );
 
-    // If tool requires human approval, emit tool_approval event and pause
-    if (matchedTool && matchedTool.requiresApproval) {
-      const callId = `call_${Date.now()}`;
-      const approval = await McpOrchestrator.executeTool({
+    // Dynamic MCP Agent Tool Loop:
+    // Discovers enabled tools, invokes LLM function-calling / heuristic fallback,
+    // streams tool_call/tool_result events, handles approvals, and injects verified data.
+    if (mcpTools && mcpTools.length > 0) {
+      const toolLoopResult = await runAgentToolLoop({
         workspaceId,
         userId: req.user?.id,
         conversationId: conversation._id.toString(),
-        toolCallId: callId,
-        toolName: matchedTool.name,
-        args: toolArgs,
-        isApproved: false,
+        message,
+        history,
+        enabledTools: mcpTools,
+        res,
+        model: aiPayload.model,
       });
 
-      res.write(
-        `event: tool_approval\ndata: ${JSON.stringify({
-          toolCallId: approval.approvalId || callId,
-          toolName: matchedTool.name,
-          serverName: matchedTool.serverName,
-          args: toolArgs,
-          status: "pending",
-          requiresApproval: true,
-        })}\n\n`
-      );
+      if (toolLoopResult.pausedForApproval) {
+        return res.end();
+      }
 
-      await Message.create({
-        workspaceId,
-        conversationId: conversation._id,
-        role: "ASSISTANT",
-        content: `I've prepared a tool execution: **${matchedTool.name}** from **${matchedTool.serverName}**. Please confirm approval to proceed.`,
-        toolCalls: [
-          {
-            id: approval.approvalId || callId,
-            toolName: matchedTool.name,
-            serverName: matchedTool.serverName,
-            args: toolArgs,
-            status: "pending",
-            requiresApproval: true,
-          },
-        ],
-      });
-
-      res.write(`event: done\ndata: {}\n\n`);
-      return res.end();
-    }
-
-    // If auto tool (no approval required), emit tool_call, execute via official MCP client, emit tool_result, and inject context
-    if (matchedTool && !matchedTool.requiresApproval) {
-      const callId = `call_${Date.now()}`;
-      res.write(
-        `event: tool_call\ndata: ${JSON.stringify({
-          toolCallId: callId,
-          toolName: matchedTool.name,
-          serverName: matchedTool.serverName,
-          args: toolArgs,
-          status: "executing",
-        })}\n\n`
-      );
-
-      const toolExecResult = await McpOrchestrator.executeTool({
-        workspaceId,
-        userId: req.user?.id,
-        conversationId: conversation._id.toString(),
-        toolCallId: callId,
-        toolName: matchedTool.name,
-        args: toolArgs,
-        isApproved: true,
-      });
-
-      res.write(
-        `event: tool_result\ndata: ${JSON.stringify({
-          toolCallId: callId,
-          toolName: matchedTool.name,
-          serverName: matchedTool.serverName,
-          status: toolExecResult.status === "error" ? "error" : "completed",
-          result: toolExecResult.result,
-        })}\n\n`
-      );
-
-      aiPayload.custom_prompt = `[VERIFIED REAL-TIME TOOL DATA]:
-The connected tool "${matchedTool.name}" was executed successfully with live user credentials and returned this verified data:
-${JSON.stringify(toolExecResult.result, null, 2)}
-
-INSTRUCTION: You HAVE full authorized access to this user data. Directly answer the user's question using this verified output. Never say you lack access to their account.`;
+      if (toolLoopResult.promptContext) {
+        aiPayload.custom_prompt = (aiPayload.custom_prompt || "") + "\n\n" + toolLoopResult.promptContext;
+      }
     }
 
     const abortController = new AbortController();
@@ -956,7 +681,7 @@ INSTRUCTION: You HAVE full authorized access to this user data. Directly answer 
  * Approves or rejects a human-in-the-loop MCP tool execution.
  * If approved, executes the tool and streams the verified output + LLM explanation.
  */
-router.post("/approve-tool", authenticate, tenantGuard, async (req, res, next) => {
+router.post("/approve-tool", authenticate, tenantGuard, requireRole("OWNER", "ADMIN", "MEMBER"), async (req, res, next) => {
   try {
     const { toolCallId, approved, conversationId } = req.body;
     let workspaceId = req.workspaceId || req.headers["x-workspace-id"];
@@ -979,6 +704,21 @@ router.post("/approve-tool", authenticate, tenantGuard, async (req, res, next) =
     }
 
     if (!approved || (resolved && !resolved.approved)) {
+      if (conversationId) {
+        try {
+          await Message.updateOne(
+            { conversationId, "toolCalls.id": toolCallId },
+            {
+              $set: {
+                "toolCalls.$.status": "rejected",
+                content: "❌ Tool execution was cancelled or rejected by user.",
+              },
+            }
+          );
+        } catch (dbErr) {
+          logger.warn({ err: dbErr.message }, "Could not update rejected toolCall status in DB");
+        }
+      }
       res.write(
         `event: token\ndata: ${JSON.stringify({
           delta: "\n\n❌ Tool execution was cancelled or rejected by user.",
@@ -1075,6 +815,7 @@ router.post("/approve-tool", authenticate, tenantGuard, async (req, res, next) =
             $set: {
               "toolCalls.$.status": "completed",
               "toolCalls.$.result": resultData,
+              content: summaryText.trim(),
             },
           }
         );

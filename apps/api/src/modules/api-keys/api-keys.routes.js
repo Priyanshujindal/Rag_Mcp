@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { tenantGuard } from "../../middleware/tenant-guard.middleware.js";
+import { requireRole } from "../../middleware/rbac.middleware.js";
 import { validate, objectIdSchema } from "../../middleware/validation.middleware.js";
 import apiKeysController from "./api-keys.controller.js";
 
@@ -46,16 +47,17 @@ const idParamsSchema = z
 router.use(authenticate, tenantGuard);
 
 router.get("/", apiKeysController.list);
-router.post("/", validate({ body: createApiKeySchema }), apiKeysController.create);
+router.post("/", requireRole("OWNER", "ADMIN"), validate({ body: createApiKeySchema }), apiKeysController.create);
 router.get("/:id", validate({ params: idParamsSchema }), apiKeysController.getById);
 router.patch(
   "/:id",
+  requireRole("OWNER", "ADMIN"),
   validate({ params: idParamsSchema, body: updateApiKeySchema }),
   apiKeysController.update
 );
-router.post("/:id/rotate", validate({ params: idParamsSchema }), apiKeysController.rotate);
-router.post("/:id/revoke", validate({ params: idParamsSchema }), apiKeysController.revoke);
-router.delete("/:id", validate({ params: idParamsSchema }), apiKeysController.delete);
+router.post("/:id/rotate", requireRole("OWNER", "ADMIN"), validate({ params: idParamsSchema }), apiKeysController.rotate);
+router.post("/:id/revoke", requireRole("OWNER", "ADMIN"), validate({ params: idParamsSchema }), apiKeysController.revoke);
+router.delete("/:id", requireRole("OWNER", "ADMIN"), validate({ params: idParamsSchema }), apiKeysController.delete);
 router.get("/:id/usage", validate({ params: idParamsSchema }), apiKeysController.getUsage);
 
 export default router;

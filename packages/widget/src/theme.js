@@ -34,6 +34,7 @@ export function getWidgetStyles(primaryColor = "#10a37f", theme = "dark") {
       align-items: flex-end;
       bottom: 20px;
       right: 20px;
+      pointer-events: none;
       --rmw-brand: ${primaryColor};
       --rmw-brand-hover: ${primaryColor}dd;
       --rmw-bg-card: ${isDark ? "#18181b" : "#ffffff"};
@@ -53,6 +54,7 @@ export function getWidgetStyles(primaryColor = "#10a37f", theme = "dark") {
 
     /* Floating Launcher Button */
     .rmw-launcher {
+      pointer-events: auto;
       width: 58px;
       height: 58px;
       border-radius: 50%;
@@ -127,10 +129,11 @@ export function getWidgetStyles(primaryColor = "#10a37f", theme = "dark") {
       overflow: hidden;
       margin-bottom: 14px;
       opacity: 0;
+      visibility: hidden;
       transform: translateY(16px) scale(0.97);
       transform-origin: bottom right;
       pointer-events: none;
-      transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.22s ease;
     }
 
     .rmw-container.pos-left .rmw-window {
@@ -138,6 +141,9 @@ export function getWidgetStyles(primaryColor = "#10a37f", theme = "dark") {
     }
 
     .rmw-window.open {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
       opacity: 1;
       transform: translateY(0) scale(1);
       pointer-events: auto;

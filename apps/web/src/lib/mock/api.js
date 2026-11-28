@@ -564,6 +564,147 @@ export async function refreshMcpTools(id) {
   return server || { id, tools: [] };
 }
 
+export async function batchUpdateMcpTools(id, action) {
+  await delay();
+  const server = state.mcpServers.find((s) => s.id === id);
+  if (server?.tools) {
+    const isEnable = action === "enable_all";
+    server.tools.forEach((t) => {
+      t.enabled = isEnable;
+      if (!isEnable) t.permission = "deny";
+      else if (t.permission === "deny") t.permission = "auto";
+    });
+  }
+  return { success: true, count: server?.tools?.length || 0 };
+}
+
+export async function importMcpConfig(config, options = {}) {
+  await delay();
+  const servers = [];
+  const entries = config?.mcpServers ? Object.entries(config.mcpServers) : [["custom-mcp", config]];
+  for (const [name, cfg] of entries) {
+    const id = `mcp_${Math.random().toString(36).slice(2, 9)}`;
+    const srv = {
+      id,
+      name,
+      transport: cfg.transport || "stdio",
+      command: cfg.command || "",
+      args: cfg.args || [],
+      env: cfg.env || {},
+      status: "connected",
+      tools: [
+        { id: `${id}_t1`, name: "custom_tool", description: `Discovered tool from ${name}`, enabled: true, permission: "auto", requiresApproval: false }
+      ],
+      createdAt: new Date().toISOString(),
+    };
+    state.mcpServers.unshift(srv);
+    servers.push(srv);
+  }
+  return { importedCount: servers.length, servers };
+}
+
+export async function connectMcpServer(id) {
+  await delay();
+  const server = state.mcpServers.find((s) => s.id === id);
+  if (server) server.status = "connected";
+  return { success: true, status: "connected" };
+}
+
+export async function disconnectMcpServer(id) {
+  await delay();
+  const server = state.mcpServers.find((s) => s.id === id);
+  if (server) server.status = "disconnected";
+  return { success: true, status: "disconnected" };
+}
+
+export async function getMcpConfig(id) {
+  await delay();
+  const server = state.mcpServers.find((s) => s.id === id);
+  return {
+    rawConfig: {
+      mcpServers: {
+        [server?.name || "server"]: {
+          command: server?.command || "npx",
+          args: server?.args || [],
+          env: {},
+        }
+      }
+    }
+  };
+}
+
+export async function updateMcpConfig(id, config) {
+  await delay();
+  const server = state.mcpServers.find((s) => s.id === id);
+  if (server) {
+    server.rawConfig = config;
+  }
+  return { success: true, server };
+}
+
+export async function getMcpServerLogs(id) {
+  await delay();
+  return {
+    serverId: id,
+    logs: [
+      {
+        timestamp: new Date().toISOString(),
+        level: "info",
+        text: "Mock MCP server running normally (no stderr errors).",
+      },
+    ],
+  };
+}
+
+export async function getTeamMembers() {
+  await delay();
+  return {
+    currentUserRole: "OWNER",
+    members: [
+      {
+        id: "mem_1",
+        userId: "user_1",
+        name: "Demo User",
+        email: "demo@rag-mcp.ai",
+        role: "OWNER",
+        joinedAt: new Date().toISOString(),
+        isCurrentUser: true,
+      },
+    ],
+    invites: [],
+  };
+}
+
+export async function inviteTeamMember(data) {
+  await delay();
+  return { status: "invited", message: `Mock invite sent to ${data.email} (${data.role})` };
+}
+
+export async function updateTeamMemberRole() {
+  await delay();
+  return { success: true };
+}
+
+export async function removeTeamMember() {
+  await delay();
+  return { success: true };
+}
+
+export async function revokeTeamInvite() {
+  await delay();
+  return { success: true };
+}
+
+export async function resendTeamInvite() {
+  await delay();
+  return { success: true, message: "Mock invitation refreshed." };
+}
+
+export async function leaveWorkspace() {
+  await delay();
+  return { success: true };
+}
+
 export async function testMcpConnection(_id, _data) {
   await delay();
   return {

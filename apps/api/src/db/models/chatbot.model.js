@@ -28,6 +28,10 @@ const chatbotConfigSchema = new mongoose.Schema(
       type: String,
       default: "#10a37f",
     },
+    model: {
+      type: String,
+      default: "gemini-3.5-flash-lite",
+    },
   },
   { _id: false }
 );

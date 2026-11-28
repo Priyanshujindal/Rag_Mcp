@@ -1,18 +1,30 @@
 import xml.etree.ElementTree as ET
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 from typing import List, Set
 from app.core.logging import logger
 from app.ingestion.crawler.ssrf_guard import safe_fetch_url
 
 
-async def discover_sitemap_urls(base_url: str, max_urls: int = 100) -> List[str]:
+async def discover_sitemap_urls(
+    base_url: str,
+    max_urls: int = 100,
+    path_prefix: str = "",
+) -> List[str]:
     """
     Attempts to discover and parse sitemap.xml or sitemap indexes from base_url.
-    Returns list of discovered same-domain URLs.
+    Filters discovered URLs by same-domain and optional path_prefix.
     """
     parsed = urlparse(base_url)
     sitemap_url = f"{parsed.scheme}://{parsed.netloc}/sitemap.xml"
     urls: Set[str] = set()
+
+    def _matches(u: str) -> bool:
+        p = urlparse(u)
+        if p.netloc.lower() != parsed.netloc.lower():
+            return False
+        if path_prefix and not p.path.startswith(path_prefix):
+            return False
+        return True
 
     try:
         content, _, _ = await safe_fetch_url(sitemap_url, timeout=5.0)
@@ -26,11 +38,9 @@ async def discover_sitemap_urls(base_url: str, max_urls: int = 100) -> List[str]
         logger.debug(f"Failed to parse XML sitemap from {sitemap_url}: {e}")
         return []
 
-    # Handle namespaces in sitemap XML (e.g. {http://www.sitemaps.org/schemas/sitemap/0.9})
     tag_name = root.tag.split("}")[-1] if "}" in root.tag else root.tag
 
     if tag_name == "sitemapindex":
-        # Sitemap index: fetch child sitemaps
         for sitemap_elem in root:
             for child in sitemap_elem:
                 if child.tag.endswith("loc") and child.text:
@@ -42,7 +52,7 @@ async def discover_sitemap_urls(base_url: str, max_urls: int = 100) -> List[str]
                             for c in url_elem:
                                 if c.tag.endswith("loc") and c.text:
                                     u = c.text.strip()
-                                    if urlparse(u).netloc == parsed.netloc:
+                                    if _matches(u):
                                         urls.add(u)
                                         if len(urls) >= max_urls:
                                             return list(urls)
@@ -54,10 +64,9 @@ async def discover_sitemap_urls(base_url: str, max_urls: int = 100) -> List[str]
             for child in url_elem:
                 if child.tag.endswith("loc") and child.text:
                     u = child.text.strip()
-                    if urlparse(u).netloc == parsed.netloc:
+                    if _matches(u):
                         urls.add(u)
                         if len(urls) >= max_urls:
                             return list(urls)
 
     return list(urls)
-

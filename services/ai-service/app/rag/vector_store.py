@@ -360,15 +360,82 @@ class AtlasVectorStore(VectorStore):
             logger.warning("$rankFusion not supported on this cluster; falling back to manual RRF")
             effective_strategy = "manual"
 
-        if effective_strategy == "rankfusion":
-            return await self._hybrid_rankfusion(
-                workspace_id, kb_id, query_embedding, query_text, top_n, source_ids
+        results: list[dict[str, Any]] = []
+        try:
+            if effective_strategy == "rankfusion":
+                results = await self._hybrid_rankfusion(
+                    workspace_id, kb_id, query_embedding, query_text, top_n, source_ids
+                )
+            else:
+                results = await self._hybrid_manual_rrf(
+                    workspace_id, kb_id, query_embedding, query_text, top_n,
+                    vector_weight, text_weight, source_ids
+                )
+        except Exception as exc:
+            logger.warning(f"Atlas hybrid search failed ({exc}); falling back to cosine scan")
+            results = []
+
+        if not results and query_embedding:
+            results = await self._fallback_cosine_scan(
+                workspace_id, kb_id, query_embedding, top_n, source_ids
             )
-        else:
-            return await self._hybrid_manual_rrf(
-                workspace_id, kb_id, query_embedding, query_text, top_n,
-                vector_weight, text_weight, source_ids
-            )
+
+        return results
+
+    async def _fallback_cosine_scan(
+        self,
+        workspace_id: ObjectId,
+        kb_id: ObjectId | None,
+        query_embedding: list[float],
+        top_n: int,
+        source_ids: list[ObjectId] | None,
+    ) -> list[dict[str, Any]]:
+        """
+        Fallback in-memory cosine similarity scan scoped strictly to workspace_id + kb_id.
+        Used when Atlas $vectorSearch/$search returns 0 results (e.g. newly indexed chunks
+        still syncing to Atlas Search or local MongoDB without Atlas Search indexes).
+        """
+        query_filter: dict[str, Any] = {"workspaceId": workspace_id}
+        if kb_id is not None:
+            query_filter["knowledgeBaseId"] = kb_id
+        if source_ids:
+            query_filter["sourceId"] = {"$in": source_ids}
+
+        try:
+            docs = await self._collection.find(query_filter).limit(200).to_list(length=200)
+        except Exception as exc:
+            logger.warning(f"Fallback cosine scan query failed: {exc}")
+            return []
+
+        if not docs:
+            return []
+
+        import math
+
+        q_norm = math.sqrt(sum(x * x for x in query_embedding)) or 1.0
+        scored: list[dict[str, Any]] = []
+        for doc in docs:
+            emb = doc.pop("embedding", None)
+            score = 0.0
+            if isinstance(emb, list) and len(emb) == len(query_embedding):
+                dot = sum(a * b for a, b in zip(query_embedding, emb))
+                d_norm = math.sqrt(sum(b * b for b in emb)) or 1.0
+                score = max(0.0, dot / (q_norm * d_norm))
+            doc["vectorScore"] = score
+            doc["textScore"] = 0.0
+            doc["fusedScore"] = score
+            _stringify_ids(doc)
+            scored.append(doc)
+
+        scored.sort(key=lambda d: d["fusedScore"], reverse=True)
+        for rank, d in enumerate(scored[:top_n], start=1):
+            d["vectorRank"] = rank
+        logger.info(
+            "Fallback cosine scan returned %d chunks (kb=%s)",
+            min(len(scored), top_n),
+            str(kb_id),
+        )
+        return scored[:top_n]
 
     async def _hybrid_rankfusion(
         self,

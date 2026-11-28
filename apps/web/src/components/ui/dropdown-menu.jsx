@@ -113,8 +113,8 @@ export function DropdownMenuItem({
       type="button"
       role="menuitem"
       className={`dropdown-item ${danger ? "danger" : ""} ${className}`}
-      onClick={() => {
-        onClick?.();
+      onClick={(e) => {
+        onClick?.(e);
         onClose?.();
       }}
     >

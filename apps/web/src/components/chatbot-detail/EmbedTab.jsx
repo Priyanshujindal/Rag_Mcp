@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Check, Copy, Play, Code2, Sparkles, ExternalLink } from "lucide-react";
+import { getApiOrigin } from "@/lib/api";
 
 /**
  * Embed tab providing script tag snippet, JS initialization, and live in-page testing.
@@ -9,12 +10,20 @@ import { Check, Copy, Play, Code2, Sparkles, ExternalLink } from "lucide-react";
  * @param {string} props.embedScript - Generated embed script
  * @param {string} [props.apiHost] - API host URL
  */
-export function EmbedTab({ bot, themeConfig, embedScript, apiHost = "http://localhost:8000" }) {
+export function EmbedTab({ bot, themeConfig, embedScript, apiHost = getApiOrigin() }) {
   const [copiedScript, setCopiedScript] = useState(false);
   const [copiedJs, setCopiedJs] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
   const [isLiveTesting, setIsLiveTesting] = useState(false);
 
   const botId = bot.publicId || bot.id;
+  const shareUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/bot/${botId}`;
+
+  const handleCopyShare = () => {
+    navigator.clipboard.writeText(shareUrl);
+    setCopiedShare(true);
+    setTimeout(() => setCopiedShare(false), 2000);
+  };
 
   const handleCopyScript = () => {
     navigator.clipboard.writeText(embedScript);
@@ -42,9 +51,19 @@ export function EmbedTab({ bot, themeConfig, embedScript, apiHost = "http://loca
     setTimeout(() => setCopiedJs(false), 2000);
   };
 
+  useEffect(() => {
+    return () => {
+      if (window.RagMcpWidget?.destroy) window.RagMcpWidget.destroy();
+      const host = document.getElementById("rag-mcp-widget-host");
+      if (host?.parentNode) host.parentNode.removeChild(host);
+    };
+  }, []);
+
   const handleTestLive = () => {
     if (isLiveTesting) {
-      if (window.RagMcpWidget) window.RagMcpWidget.destroy();
+      if (window.RagMcpWidget?.destroy) window.RagMcpWidget.destroy();
+      const host = document.getElementById("rag-mcp-widget-host");
+      if (host?.parentNode) host.parentNode.removeChild(host);
       setIsLiveTesting(false);
       return;
     }
@@ -70,7 +89,7 @@ export function EmbedTab({ bot, themeConfig, embedScript, apiHost = "http://loca
       startWidget();
     } else {
       const script = document.createElement("script");
-      script.src = `${apiHost}/api/v1/public/widget.js`;
+      script.src = `${apiHost}/api/v1/public/widget.js?v=${Date.now()}`;
       script.onload = startWidget;
       document.head.appendChild(script);
     }
@@ -100,6 +119,41 @@ export function ChatbotWidget() {
 
   return (
     <div className="embed-stack">
+      {/* Public Shareable Chatbot Link */}
+      <div className="card bot-detail-card-padded">
+        <div className="bot-detail-card-header">
+          <div>
+            <h4 className="bot-detail-card-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <ExternalLink size={16} /> Public Shareable Chatbot Link
+            </h4>
+            <p className="embed-desc" style={{ marginTop: "4px" }}>
+              Share this standalone URL so anyone can chat with your assistant without logging in.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm btn-with-icon"
+              onClick={handleCopyShare}
+            >
+              {copiedShare ? <Check size={13} color="var(--success)" /> : <Copy size={13} />}
+              {copiedShare ? "Copied Link" : "Copy Link"}
+            </button>
+            <a
+              href={`/bot/${botId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-primary btn-sm btn-with-icon"
+            >
+              <ExternalLink size={13} /> Open Public Page
+            </a>
+          </div>
+        </div>
+        <pre className="bot-detail-code-pre" style={{ marginTop: "8px" }}>
+          {shareUrl}
+        </pre>
+      </div>
+
       {/* Live Test Banner Card */}
       <div className="card bot-detail-card-padded" style={{ borderColor: "var(--accent)" }}>
         <div className="bot-detail-card-header">

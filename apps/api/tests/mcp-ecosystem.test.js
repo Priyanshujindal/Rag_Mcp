@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { validateRemoteMcpUrl } from "../src/utils/ssrf-guard.js";
 import { McpClientManager } from "../src/modules/mcp/mcp.client-manager.js";
 import { McpOrchestrator } from "../src/modules/mcp/mcp.orchestrator.js";
+import { parseMcpConfigInput } from "../src/modules/mcp/mcp.manager.js";
+import McpServer from "../src/db/models/mcp-server.model.js";
 
 describe("Model Context Protocol (MCP) Ecosystem Tests", () => {
   describe("Phase 11: Security & SSRF Prevention Guard", () => {
@@ -151,6 +153,69 @@ describe("Model Context Protocol (MCP) Ecosystem Tests", () => {
       expect(formatted).toHaveLength(1);
       expect(formatted[0].functionDeclarations).toHaveLength(1);
       expect(formatted[0].functionDeclarations[0].name).toBe("web_search_mcp");
+    });
+  });
+
+  describe("Antigravity Custom MCP Management & Multi-Server Configuration", () => {
+    it("parses multi-server Antigravity format configurations", () => {
+      const antigravityConfig = {
+        mcpServers: {
+          calculator: {
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-everything"],
+          },
+          "my-python-mcp": {
+            command: "uv",
+            args: ["run", "my-mcp-server"],
+            env: { API_KEY: "secret_12345" },
+          },
+          "remote-mcp": {
+            url: "https://example.com/mcp",
+            transport: "streamable-http",
+            headers: { Authorization: "Bearer tok_xyz" },
+          },
+        },
+      };
+
+      const parsed = parseMcpConfigInput(antigravityConfig);
+      expect(parsed).toHaveLength(3);
+
+      const calc = parsed.find((p) => p.name === "calculator");
+      expect(calc.command).toBe("npx");
+      expect(calc.args).toEqual(["-y", "@modelcontextprotocol/server-everything"]);
+      expect(calc.transport).toBe("STDIO");
+
+      const py = parsed.find((p) => p.name === "my-python-mcp");
+      expect(py.command).toBe("uv");
+      expect(py.env.API_KEY).toBe("secret_12345");
+
+      const remote = parsed.find((p) => p.name === "remote-mcp");
+      expect(remote.transport).toBe("STREAMABLE_HTTP");
+      expect(remote.url).toBe("https://example.com/mcp");
+    });
+
+    it("redacts sensitive environment variables and headers in model toJSON", () => {
+      const doc = new McpServer({
+        workspaceId: "656e1b6f9a3c9e3b8a1c9e3b",
+        name: "Secure Server",
+        command: "uv",
+        env: {
+          MY_API_KEY: "super_secret_value",
+          DATABASE_PASS: "hidden_password",
+          APP_NAME: "my-service",
+        },
+        headers: {
+          Authorization: "Bearer sensitive_token",
+          "X-Api-Key": "my_api_key",
+        },
+      });
+
+      const json = doc.toJSON();
+      expect(json.env.MY_API_KEY).toBe("••••••••");
+      expect(json.env.DATABASE_PASS).toBe("••••••••");
+      expect(json.env.APP_NAME).toBe("my-service");
+      expect(json.headers.Authorization).toBe("••••••••");
+      expect(json.headers["X-Api-Key"]).toBe("••••••••");
     });
   });
 });

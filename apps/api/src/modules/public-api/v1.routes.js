@@ -8,9 +8,10 @@ import publicChatController from "./chat.public.controller.js";
 
 const router = Router();
 
-// Permissive CORS for public endpoints
+// Permissive CORS & CORP for public endpoints and cross-origin widget embedding
 router.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",

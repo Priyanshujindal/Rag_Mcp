@@ -4,7 +4,7 @@ import {
   Bot, Settings, Palette, Database, BarChart3, Code2, MessageSquare, Loader
 } from "lucide-react";
 import { mockChatbots, mockKnowledgeBases } from "@/lib/mock/data";
-import { getMockChatbotById, getMockKnowledgeBases, isMock } from "@/lib/api";
+import { getMockChatbotById, getMockKnowledgeBases, updateChatbot, getApiOrigin, isMock } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { OverviewTab } from "@/components/chatbot-detail/OverviewTab";
 import { CustomizeTab } from "@/components/chatbot-detail/CustomizeTab";
@@ -31,44 +31,59 @@ export default function ChatbotDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "customize";
 
-  const fallbackBot = mockChatbots.find((b) => b.id === botId) || mockChatbots[0];
+  const fallbackBot = isMock
+    ? mockChatbots.find((b) => b.id === botId) || mockChatbots[0]
+    : {
+        id: botId,
+        name: "Loading...",
+        status: "ACTIVE",
+        config: {},
+        knowledgeBaseIds: [],
+      };
   const [bot, setBot] = useState(fallbackBot);
-  const [kbs, setKbs] = useState(mockKnowledgeBases);
-  const [loading, setLoading] = useState(false);
+  const [kbs, setKbs] = useState(isMock ? mockKnowledgeBases : []);
+  const [loading, setLoading] = useState(!isMock);
 
   // Customizer state linked to live preview
   const [themeConfig, setThemeConfig] = useState({
-    name: fallbackBot.name,
-    headerTitle: fallbackBot.theme?.headerTitle || fallbackBot.name,
+    name: isMock ? fallbackBot.name : "AI Assistant",
+    headerTitle: isMock ? (fallbackBot.theme?.headerTitle || fallbackBot.name) : "AI Assistant",
     primaryColor: fallbackBot.theme?.primaryColor || "#6366f1",
     theme: "dark",
     position: fallbackBot.theme?.position || "bottom-right",
     borderRadius: fallbackBot.theme?.borderRadius || "16px",
     welcomeMessage: fallbackBot.theme?.welcomeMessage || "Hi there! 👋 How can I help you today?",
     systemPrompt: fallbackBot.systemPrompt || "You are a helpful assistant.",
-    suggestedQuestions: fallbackBot.theme?.suggestedQuestions || [
-      "How does this product work?",
-      "Can I view the documentation?",
-      "How to contact support?",
-    ],
+    suggestedQuestions: isMock
+      ? fallbackBot.theme?.suggestedQuestions || []
+      : [],
   });
 
   useEffect(() => {
     if (!isMock && botId) {
       setLoading(true);
       Promise.all([
-        getMockChatbotById(botId).catch(() => fallbackBot),
+        getMockChatbotById(botId).catch(() => null),
         getMockKnowledgeBases().catch(() => mockKnowledgeBases),
       ]).then(([loadedBot, loadedKbs]) => {
         if (loadedBot) {
           setBot(loadedBot);
+          const cfg = loadedBot.config || {};
+          const th = loadedBot.theme || {};
           setThemeConfig((prev) => ({
             ...prev,
-            name: loadedBot.name,
-            headerTitle: loadedBot.theme?.headerTitle || loadedBot.name,
-            primaryColor: loadedBot.theme?.primaryColor || "#6366f1",
-            welcomeMessage: loadedBot.theme?.welcomeMessage || prev.welcomeMessage,
-            systemPrompt: loadedBot.systemPrompt || prev.systemPrompt,
+            name: loadedBot.name || prev.name,
+            headerTitle: th.headerTitle || loadedBot.name || prev.headerTitle,
+            primaryColor: cfg.primaryColor || th.primaryColor || prev.primaryColor,
+            theme: cfg.theme || prev.theme,
+            position: cfg.position || th.position || prev.position,
+            welcomeMessage: cfg.welcomeMessage || th.welcomeMessage || prev.welcomeMessage,
+            systemPrompt: cfg.systemPrompt || loadedBot.systemPrompt || prev.systemPrompt,
+            suggestedQuestions: Array.isArray(cfg.suggestedQuestions)
+              ? cfg.suggestedQuestions
+              : Array.isArray(th.suggestedQuestions)
+              ? th.suggestedQuestions
+              : [],
           }));
         }
         if (Array.isArray(loadedKbs) && loadedKbs.length > 0) {
@@ -81,20 +96,47 @@ export default function ChatbotDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [botId]);
 
+  const handleSaveTheme = async () => {
+    if (isMock) {
+      alert("Settings saved (mock mode)!");
+      return;
+    }
+    await updateChatbot(bot.id || botId, {
+      name: themeConfig.name,
+      config: {
+        theme: themeConfig.theme,
+        primaryColor: themeConfig.primaryColor,
+        position: themeConfig.position,
+        welcomeMessage: themeConfig.welcomeMessage,
+        systemPrompt: themeConfig.systemPrompt,
+        suggestedQuestions: themeConfig.suggestedQuestions,
+      },
+    });
+    setBot((prev) => ({
+      ...prev,
+      name: themeConfig.name,
+      config: {
+        ...(prev.config || {}),
+        theme: themeConfig.theme,
+        primaryColor: themeConfig.primaryColor,
+        position: themeConfig.position,
+        welcomeMessage: themeConfig.welcomeMessage,
+        systemPrompt: themeConfig.systemPrompt,
+        suggestedQuestions: themeConfig.suggestedQuestions,
+      },
+    }));
+  };
+
   const handleTabChange = (tabId) => {
     setSearchParams({ tab: tabId });
   };
 
   const linkedKb =
-    kbs.find((kb) => (bot.knowledgeBaseIds || []).includes(kb.id)) ||
+    kbs.find((kb) => kb.id === bot.knowledgeBaseId || (bot.knowledgeBaseIds || []).includes(kb.id)) ||
     kbs[0] ||
     mockKnowledgeBases[0];
 
-  const apiHost =
-    import.meta.env.VITE_API_BASE_URL ||
-    (typeof window !== "undefined"
-      ? window.location.origin.replace(":5173", ":8000").replace(":3000", ":8000")
-      : "http://localhost:8000");
+  const apiHost = getApiOrigin();
 
   const embedScript = `<!-- Rag_Mcp Web Chatbot Embed -->
 <script
@@ -175,8 +217,10 @@ export default function ChatbotDetailPage() {
       )}
       {activeTab === "customize" && (
         <CustomizeTab
+          bot={bot}
           themeConfig={themeConfig}
           setThemeConfig={setThemeConfig}
+          onSaveTheme={handleSaveTheme}
           simulatedSiteUrl={bot.allowedDomains?.[0] || "https://yourwebsite.com"}
         />
       )}

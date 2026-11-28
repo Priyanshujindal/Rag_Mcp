@@ -51,10 +51,10 @@ class Settings(BaseSettings):
     RERANKER: Literal["none", "cross-encoder"] = Field(default="none", description="Reranker model")
 
     # Ingestion & Crawler
-    CRAWL_MAX_PAGES: int = Field(default=50, ge=1, description="Max pages per crawl")
-    CRAWL_MAX_DEPTH: int = Field(default=3, ge=1, description="Max link depth")
+    CRAWL_MAX_PAGES: int = Field(default=25, ge=1, description="Max pages per crawl")
+    CRAWL_MAX_DEPTH: int = Field(default=2, ge=1, description="Max link depth")
     MAX_FILE_MB: int = Field(default=10, ge=1, description="Max file size in MB")
-    MAX_CHUNKS_PER_WORKSPACE: int = Field(default=5000, ge=1, description="Max chunks per workspace")
+    MAX_CHUNKS_PER_WORKSPACE: int = Field(default=500000, ge=1, description="Max chunks per workspace")
     ESTIMATED_DB_CAPACITY_MB: int = Field(default=512, ge=1, description="Estimated DB storage budget in MB")
 
     # External Provider Keys

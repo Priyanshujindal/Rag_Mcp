@@ -18,6 +18,26 @@ const BASE_URL =
   "/api/v1";
 
 /**
+ * Resolve the backend API origin (without trailing `/api/v1` or `/`) for embed scripts and docs snippets.
+ */
+export function getApiOrigin() {
+  const envUrl =
+    typeof import.meta !== "undefined" && import.meta.env
+      ? import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL
+      : "";
+
+  if (envUrl && /^https?:\/\//i.test(envUrl)) {
+    return envUrl.replace(/\/api\/v1\/?$/i, "").replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined") {
+    return window.location.origin.replace(":5173", ":8000").replace(":3000", ":8000");
+  }
+
+  return "http://localhost:8000";
+}
+
+/**
  * Access token kept in module-level memory only.
  * NEVER written to localStorage, sessionStorage, IndexedDB or cookies.
  */

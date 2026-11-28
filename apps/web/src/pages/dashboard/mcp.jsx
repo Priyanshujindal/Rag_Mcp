@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Plus,
   Server,
@@ -15,13 +15,15 @@ import {
   Layers,
   History,
   Plug,
-  Mail,
-  HardDrive,
-  Calendar,
-  FileText,
-  Github,
-  MessageSquare,
-  CheckSquare,
+  Terminal,
+  Globe,
+  FileJson,
+  Search,
+  Power,
+  Sliders,
+  Check,
+  Copy,
+  X,
   ExternalLink,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -35,17 +37,67 @@ import {
   refreshMcpTools,
   testMcpConnection,
   toggleMcpTool,
+  batchUpdateMcpTools,
+  importMcpConfig,
+  connectMcpServer,
+  disconnectMcpServer,
+  getMcpConfig,
+  updateMcpConfig,
+  getMcpServerLogs,
   getMcpExecutions,
   getIntegrationsCatalog,
   getActiveMcpTools,
-  isMock,
 } from "@/lib/api";
-import { Link } from "react-router-dom";
 import "./mcp.css";
 
-function statusVariant(status) {
+const CONFIG_TEMPLATES = {
+  calculator: {
+    label: "Calculator / Everything (npx)",
+    config: {
+      mcpServers: {
+        calculator: {
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-everything"],
+        },
+      },
+    },
+  },
+  python: {
+    label: "Python MCP (uv)",
+    config: {
+      mcpServers: {
+        "my-python-mcp": {
+          command: "uv",
+          args: ["run", "my-mcp-server"],
+          env: {
+            API_KEY: "your_api_key_here",
+          },
+        },
+      },
+    },
+  },
+  remote: {
+    label: "Remote Server (Streamable HTTP / SSE)",
+    config: {
+      mcpServers: {
+        "remote-mcp": {
+          url: "https://example.com/mcp",
+          transport: "streamable-http",
+          headers: {
+            Authorization: "Bearer your_token_here",
+          },
+        },
+      },
+    },
+  },
+};
+
+function statusBadgeVariant(status) {
   const s = status?.toLowerCase();
-  return s === "connected" ? "success" : s === "error" ? "danger" : "neutral";
+  if (s === "connected") return "success";
+  if (s === "connecting") return "neutral";
+  if (s === "error") return "danger";
+  return "neutral";
 }
 
 export default function McpPage() {
@@ -57,45 +109,80 @@ export default function McpPage() {
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
-  const [addDialog, setAddDialog] = useState(false);
-  const [newServer, setNewServer] = useState({
+  // Add MCP Modal
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addMode, setAddMode] = useState("editor"); // 'editor' | 'guided'
+  const [editorText, setEditorText] = useState(
+    JSON.stringify(CONFIG_TEMPLATES.calculator.config, null, 2)
+  );
+  const [editorError, setEditorError] = useState(null);
+  const [autoConnectOnImport, setAutoConnectOnImport] = useState(true);
+  const [importing, setImporting] = useState(false);
+
+  // Guided form state
+  const [guidedForm, setGuidedForm] = useState({
     name: "",
+    transport: "stdio",
+    command: "npx",
+    args: "",
+    envVars: [{ key: "", value: "" }],
     url: "",
-    command: "",
-    transport: "STREAMABLE_HTTP",
     authHeader: "",
   });
 
+  // Action states
+  const [connectingId, setConnectingId] = useState(null);
+  const [refreshingId, setRefreshingId] = useState(null);
   const [testingId, setTestingId] = useState(null);
   const [testResults, setTestResults] = useState({});
-  const [refreshingId, setRefreshingId] = useState(null);
-  const [expandedSchemas, setExpandedSchemas] = useState({});
 
-  const fetchServers = () => {
-    setLoading(true);
-    setError(null);
-    Promise.all([
-      getMockMcpServers().catch(() => []),
-      getIntegrationsCatalog().catch(() => []),
-    ])
-      .then(([serversData, integrationsData]) => {
-        setServers(Array.isArray(serversData) ? serversData : []);
-        setIntegrations(Array.isArray(integrationsData) ? integrationsData : []);
-      })
-      .catch((err) => {
-        setError(err.message || "Failed to load MCP servers");
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+  // Server Manage Drawer / Modal
+  const [managingServer, setManagingServer] = useState(null);
+  const [drawerTab, setDrawerTab] = useState("tools"); // 'tools' | 'config' | 'logs'
+  const [toolSearch, setToolSearch] = useState("");
+  const [expandedSchemas, setExpandedSchemas] = useState({});
+  const [drawerConfigText, setDrawerConfigText] = useState("");
+  const [drawerConfigError, setDrawerConfigError] = useState(null);
+  const [savingDrawerConfig, setSavingDrawerConfig] = useState(false);
+  const [processLogs, setProcessLogs] = useState([]);
+  const [loadingProcessLogs, setLoadingProcessLogs] = useState(false);
+
+  const fetchProcessLogs = async (serverId) => {
+    setLoadingProcessLogs(true);
+    try {
+      const res = await getMcpServerLogs(serverId);
+      setProcessLogs(Array.isArray(res?.logs) ? res.logs : []);
+    } catch {
+      setProcessLogs([]);
+    } finally {
+      setLoadingProcessLogs(false);
+    }
   };
 
-  const fetchHistory = () => {
-    getMcpExecutions()
-      .then((data) => {
-        setExecutions(Array.isArray(data) ? data : []);
-      })
-      .catch(() => {});
+  const fetchServers = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [serversData, integrationsData] = await Promise.all([
+        getMockMcpServers().catch(() => []),
+        getIntegrationsCatalog().catch(() => []),
+      ]);
+      setServers(Array.isArray(serversData) ? serversData : []);
+      setIntegrations(Array.isArray(integrationsData) ? integrationsData : []);
+    } catch (err) {
+      setError(err.message || "Failed to load MCP servers");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchHistory = async () => {
+    try {
+      const data = await getMcpExecutions();
+      setExecutions(Array.isArray(data) ? data : []);
+    } catch {
+      // ignore
+    }
   };
 
   useEffect(() => {
@@ -103,54 +190,165 @@ export default function McpPage() {
     fetchHistory();
   }, []);
 
-  const handleAddServer = async () => {
-    if (!newServer.name.trim()) return;
-    try {
-      const payload = {
-        name: newServer.name.trim(),
-        transport: newServer.transport,
-        url: newServer.url ? newServer.url.trim() : null,
-        command: newServer.command ? newServer.command.trim() : null,
-      };
+  const showToast = (msg, isErr = false) => {
+    if (isErr) {
+      setError(msg);
+      setTimeout(() => setError(null), 5000);
+    } else {
+      setSuccessMsg(msg);
+      setTimeout(() => setSuccessMsg(null), 4000);
+    }
+  };
 
-      if (newServer.authHeader) {
-        payload.headers = {
-          Authorization: newServer.authHeader.startsWith("Bearer ")
-            ? newServer.authHeader
-            : `Bearer ${newServer.authHeader}`,
+  // Validate JSON on editor change
+  const handleEditorChange = (e) => {
+    const text = e.target.value;
+    setEditorText(text);
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed !== "object" || parsed === null) {
+        setEditorError("Root must be a JSON object");
+      } else {
+        setEditorError(null);
+      }
+    } catch (err) {
+      setEditorError(`Invalid JSON: ${err.message}`);
+    }
+  };
+
+  const handleApplyTemplate = (templateKey) => {
+    const tmpl = CONFIG_TEMPLATES[templateKey];
+    if (tmpl) {
+      setEditorText(JSON.stringify(tmpl.config, null, 2));
+      setEditorError(null);
+    }
+  };
+
+  // Import JSON Config (Option A)
+  const handleImportConfig = async () => {
+    if (editorError) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(editorText);
+    } catch (err) {
+      setEditorError(err.message);
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const res = await importMcpConfig(parsed, { autoConnect: autoConnectOnImport });
+      const count = res.importedCount || res.servers?.length || 1;
+      showToast(`Imported and discovered ${count} MCP server${count > 1 ? "s" : ""} successfully.`);
+      setShowAddModal(false);
+      await fetchServers();
+    } catch (err) {
+      setEditorError(err.message || "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // Submit Guided Form (Option B)
+  const handleGuidedSubmit = async () => {
+    if (!guidedForm.name.trim()) {
+      showToast("Server name is required", true);
+      return;
+    }
+
+    setImporting(true);
+    try {
+      let configObj;
+      if (guidedForm.transport === "stdio") {
+        const envObj = {};
+        guidedForm.envVars.forEach((pair) => {
+          if (pair.key.trim()) envObj[pair.key.trim()] = pair.value;
+        });
+
+        const argsList = guidedForm.args
+          ? guidedForm.args.split(/\s+/).filter(Boolean)
+          : [];
+
+        configObj = {
+          mcpServers: {
+            [guidedForm.name.trim()]: {
+              command: guidedForm.command.trim(),
+              args: argsList,
+              env: Object.keys(envObj).length > 0 ? envObj : undefined,
+            },
+          },
+        };
+      } else {
+        const headers = {};
+        if (guidedForm.authHeader.trim()) {
+          headers["Authorization"] = guidedForm.authHeader.startsWith("Bearer ")
+            ? guidedForm.authHeader.trim()
+            : `Bearer ${guidedForm.authHeader.trim()}`;
+        }
+
+        configObj = {
+          mcpServers: {
+            [guidedForm.name.trim()]: {
+              url: guidedForm.url.trim(),
+              transport: guidedForm.transport,
+              headers: Object.keys(headers).length > 0 ? headers : undefined,
+            },
+          },
         };
       }
 
-      await createMcpServer(payload);
-      setSuccessMsg(`Server "${newServer.name}" added successfully.`);
-      setTimeout(() => setSuccessMsg(null), 4000);
-      setAddDialog(false);
-      setNewServer({
-        name: "",
-        url: "",
-        command: "",
-        transport: "STREAMABLE_HTTP",
-        authHeader: "",
-      });
-      fetchServers();
+      const res = await importMcpConfig(configObj, { autoConnect: true });
+      showToast(`Server "${guidedForm.name}" created and connected.`);
+      setShowAddModal(false);
+      await fetchServers();
     } catch (err) {
-      setError(err.message || "Failed to add MCP server");
+      showToast(err.message || "Failed to create server", true);
+    } finally {
+      setImporting(false);
     }
   };
 
-  const handleDeleteServer = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to remove MCP server "${name}"?`)) return;
+  // Toggle Connect / Disconnect
+  const handleToggleConnect = async (srv) => {
+    const sId = srv._id || srv.id;
+    const isConn = (srv.status || "").toLowerCase() === "connected";
+    setConnectingId(sId);
     try {
-      await deleteMcpServer(id);
-      setServers((prev) => prev.filter((s) => (s._id || s.id) !== id));
-      setSuccessMsg(`Server "${name}" removed.`);
-      setTimeout(() => setSuccessMsg(null), 3000);
+      if (isConn) {
+        await disconnectMcpServer(sId);
+        showToast(`Disconnected "${srv.name}".`);
+      } else {
+        await connectMcpServer(sId);
+        showToast(`Connected "${srv.name}" and refreshed tools.`);
+      }
+      await fetchServers();
     } catch (err) {
-      setError(err.message || "Failed to delete server");
+      showToast(err.message || "Failed to change connection state", true);
+    } finally {
+      setConnectingId(null);
     }
   };
 
-  const handleTestConnection = async (srv) => {
+  // Refresh Tools
+  const handleRefresh = async (srv) => {
+    const sId = srv._id || srv.id;
+    setRefreshingId(sId);
+    try {
+      const updated = await refreshMcpTools(sId);
+      setServers((prev) => prev.map((s) => ((s._id || s.id) === sId ? updated : s)));
+      if (managingServer && (managingServer._id || managingServer.id) === sId) {
+        setManagingServer(updated);
+      }
+      showToast(`Tools refreshed for "${srv.name}". Discovered ${updated.tools?.length || 0} tools.`);
+    } catch (err) {
+      showToast(err.message || "Failed to refresh tools", true);
+    } finally {
+      setRefreshingId(null);
+    }
+  };
+
+  // Test Connection
+  const handleTest = async (srv) => {
     const sId = srv._id || srv.id;
     setTestingId(sId);
     try {
@@ -166,117 +364,267 @@ export default function McpPage() {
     }
   };
 
-  const handleRefreshTools = async (srv) => {
+  // Delete Server
+  const handleDelete = async (srv) => {
     const sId = srv._id || srv.id;
-    setRefreshingId(sId);
+    if (!window.confirm(`Are you sure you want to delete MCP server "${srv.name}"?`)) return;
     try {
-      const updated = await refreshMcpTools(sId);
-      setServers((prev) =>
-        prev.map((s) => ((s._id || s.id) === sId ? updated : s))
-      );
-      setSuccessMsg(`Tools refreshed for "${srv.name}".`);
-      setTimeout(() => setSuccessMsg(null), 3000);
+      await deleteMcpServer(sId);
+      setServers((prev) => prev.filter((s) => (s._id || s.id) !== sId));
+      if (managingServer && (managingServer._id || managingServer.id) === sId) {
+        setManagingServer(null);
+      }
+      showToast(`Server "${srv.name}" deleted.`);
     } catch (err) {
-      setError(err.message || "Failed to refresh tools");
-    } finally {
-      setRefreshingId(null);
+      showToast(err.message || "Failed to delete server", true);
     }
   };
 
-  const togglePermission = async (serverId, toolName, currentApproval) => {
-    const nextApproval = !currentApproval;
-    try {
-      await toggleMcpTool(serverId, toolName, {
-        requiresApproval: nextApproval,
-        permission: nextApproval ? "always_ask" : "auto",
-      });
-      setServers((prev) =>
-        prev.map((srv) =>
-          (srv._id || srv.id) !== serverId
-            ? srv
-            : {
-                ...srv,
-                tools: (srv.tools || []).map((t) =>
-                  t.name !== toolName
-                    ? t
-                    : {
-                        ...t,
-                        requiresApproval: nextApproval,
-                        permission: nextApproval ? "always_ask" : "auto",
-                      }
-                ),
-              }
-        )
-      );
-    } catch (err) {
-      setError(err.message || "Failed to update tool permission");
-    }
-  };
-
-  const toggleToolEnabled = async (serverId, toolName, currentEnabled) => {
+  // Toggle single tool enabled
+  const handleToggleTool = async (serverId, toolName, currentEnabled) => {
     const nextEnabled = !currentEnabled;
     try {
-      await toggleMcpTool(serverId, toolName, {
-        enabled: nextEnabled,
-      });
-      setServers((prev) =>
-        prev.map((srv) =>
-          (srv._id || srv.id) !== serverId
-            ? srv
-            : {
-                ...srv,
-                tools: (srv.tools || []).map((t) =>
-                  t.name !== toolName ? t : { ...t, enabled: nextEnabled }
-                ),
-              }
-        )
-      );
+      await toggleMcpTool(serverId, toolName, { enabled: nextEnabled });
+      const updateList = (srvList) =>
+        srvList.map((srv) => {
+          if ((srv._id || srv.id) !== serverId) return srv;
+          return {
+            ...srv,
+            tools: (srv.tools || []).map((t) =>
+              t.name === toolName ? { ...t, enabled: nextEnabled } : t
+            ),
+          };
+        });
+      setServers(updateList);
+      if (managingServer && (managingServer._id || managingServer.id) === serverId) {
+        setManagingServer((prev) => ({
+          ...prev,
+          tools: (prev.tools || []).map((t) =>
+            t.name === toolName ? { ...t, enabled: nextEnabled } : t
+          ),
+        }));
+      }
     } catch (err) {
-      setError(err.message || "Failed to toggle tool");
+      showToast(err.message || "Failed to toggle tool", true);
     }
   };
 
+  // Change permission policy
+  const handleChangePermission = async (serverId, toolName, newPerm) => {
+    try {
+      const requiresApproval = newPerm === "always_ask";
+      await toggleMcpTool(serverId, toolName, {
+        permission: newPerm,
+        requiresApproval,
+      });
+
+      const updateList = (srvList) =>
+        srvList.map((srv) => {
+          if ((srv._id || srv.id) !== serverId) return srv;
+          return {
+            ...srv,
+            tools: (srv.tools || []).map((t) =>
+              t.name === toolName
+                ? { ...t, permission: newPerm, requiresApproval }
+                : t
+            ),
+          };
+        });
+      setServers(updateList);
+      if (managingServer && (managingServer._id || managingServer.id) === serverId) {
+        setManagingServer((prev) => ({
+          ...prev,
+          tools: (prev.tools || []).map((t) =>
+            t.name === toolName
+              ? { ...t, permission: newPerm, requiresApproval }
+              : t
+          ),
+        }));
+      }
+    } catch (err) {
+      showToast(err.message || "Failed to change permission", true);
+    }
+  };
+
+  // Batch toggle all tools
+  const handleBatchTools = async (serverId, action) => {
+    try {
+      await batchUpdateMcpTools(serverId, action);
+      const isEnable = action === "enable_all";
+      const updateList = (srvList) =>
+        srvList.map((srv) => {
+          if ((srv._id || srv.id) !== serverId) return srv;
+          return {
+            ...srv,
+            tools: (srv.tools || []).map((t) => ({
+              ...t,
+              enabled: isEnable,
+              permission: !isEnable ? "deny" : t.permission === "deny" ? "auto" : t.permission,
+            })),
+          };
+        });
+      setServers(updateList);
+      if (managingServer && (managingServer._id || managingServer.id) === serverId) {
+        setManagingServer((prev) => ({
+          ...prev,
+          tools: (prev.tools || []).map((t) => ({
+            ...t,
+            enabled: isEnable,
+            permission: !isEnable ? "deny" : t.permission === "deny" ? "auto" : t.permission,
+          })),
+        }));
+      }
+      showToast(isEnable ? "All tools enabled" : "All tools disabled");
+    } catch (err) {
+      showToast(err.message || "Failed to update tools", true);
+    }
+  };
+
+  // Open Manage Drawer
+  const handleOpenManage = async (srv, initialTab = "tools") => {
+    setManagingServer(srv);
+    setDrawerTab(initialTab);
+    setDrawerConfigError(null);
+    const sId = srv._id || srv.id;
+    try {
+      const cfg = await getMcpConfig(sId);
+      setDrawerConfigText(JSON.stringify(cfg.rawConfig || cfg.config || {}, null, 2));
+    } catch {
+      setDrawerConfigText(
+        JSON.stringify(
+          {
+            mcpServers: {
+              [srv.name]: {
+                command: srv.command,
+                args: srv.args || [],
+                transport: srv.transport,
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+    }
+  };
+
+  // Save drawer config
+  const handleSaveDrawerConfig = async () => {
+    if (!managingServer || drawerConfigError) return;
+    const sId = managingServer._id || managingServer.id;
+    let parsed;
+    try {
+      parsed = JSON.parse(drawerConfigText);
+    } catch (err) {
+      setDrawerConfigError(err.message);
+      return;
+    }
+
+    setSavingDrawerConfig(true);
+    try {
+      await updateMcpConfig(sId, parsed);
+      showToast(`Configuration updated and "${managingServer.name}" reconnected.`);
+      await fetchServers();
+      const updatedSrv = servers.find((s) => (s._id || s.id) === sId);
+      if (updatedSrv) setManagingServer(updatedSrv);
+    } catch (err) {
+      setDrawerConfigError(err.message || "Save failed");
+    } finally {
+      setSavingDrawerConfig(false);
+    }
+  };
+
+  // Filter tools in drawer
+  const filteredTools = useMemo(() => {
+    if (!managingServer?.tools) return [];
+    if (!toolSearch.trim()) return managingServer.tools;
+    const q = toolSearch.toLowerCase();
+    return managingServer.tools.filter(
+      (t) =>
+        t.name?.toLowerCase().includes(q) ||
+        t.description?.toLowerCase().includes(q)
+    );
+  }, [managingServer, toolSearch]);
+
+  // Filter logs in drawer
+  const serverLogs = useMemo(() => {
+    if (!managingServer) return [];
+    const sId = managingServer._id || managingServer.id;
+    return executions.filter(
+      (ex) =>
+        ex.serverId === sId ||
+        ex.serverName === managingServer.name ||
+        ex.toolName?.startsWith(`${managingServer.name}.`)
+    );
+  }, [managingServer, executions]);
+
   return (
-    <div>
+    <div className="mcp-dashboard-container">
+      {/* Top Header */}
       <div className="page-header">
         <div>
+          <div className="mcp-badge-header">
+            <span className="mcp-badge-dot" /> Antigravity-Style Tooling
+          </div>
           <h1 className="page-title">Model Context Protocol (MCP)</h1>
           <p className="page-desc">
-            Connect AI models to external tools, databases, and APIs using the official Model Context Protocol.
+            Connect AI models to your own command-based and remote MCP servers. Configure dynamic tools, manage granular execution permissions, and inspect live schemas.
           </p>
         </div>
-        <button className="btn btn-primary btn-with-icon" onClick={() => setAddDialog(true)}>
-          <Plus size={15} /> Add MCP Server
-        </button>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-with-icon"
+            onClick={fetchServers}
+            disabled={loading}
+          >
+            <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-with-icon"
+            onClick={() => setShowAddModal(true)}
+          >
+            <Plus size={15} /> Add MCP Server
+          </button>
+        </div>
       </div>
 
+      {/* Notifications */}
       {error && (
-        <div style={{ color: "#ef4444", fontSize: "13px", marginBottom: "16px", padding: "8px 12px", background: "rgba(239, 68, 68, 0.1)", borderRadius: "6px" }}>
-          {error}
+        <div className="mcp-alert danger">
+          <AlertTriangle size={15} />
+          <span>{error}</span>
+          <button type="button" onClick={() => setError(null)} className="mcp-alert-close">
+            <X size={13} />
+          </button>
         </div>
       )}
-
       {successMsg && (
-        <div style={{ color: "#10b981", fontSize: "13px", marginBottom: "16px", padding: "8px 12px", background: "rgba(16, 185, 129, 0.1)", borderRadius: "6px" }}>
-          {successMsg}
+        <div className="mcp-alert success">
+          <CheckCircle size={15} />
+          <span>{successMsg}</span>
+          <button type="button" onClick={() => setSuccessMsg(null)} className="mcp-alert-close">
+            <X size={13} />
+          </button>
         </div>
       )}
 
-      {/* Navigation Tabs */}
+      {/* Main Tabs */}
       <div className="mcp-tabs">
         <button
           type="button"
           className={`mcp-tab-btn ${activeTab === "servers" ? "active" : ""}`}
           onClick={() => setActiveTab("servers")}
         >
-          <Layers size={14} /> Connected Servers & Tools ({servers.length})
+          <Layers size={14} /> MCP Servers ({servers.length})
         </button>
         <button
           type="button"
           className={`mcp-tab-btn ${activeTab === "apps" ? "active" : ""}`}
           onClick={() => setActiveTab("apps")}
         >
-          <Plug size={14} /> Connected Apps & Integrations (Gmail, Drive, etc.)
+          <Plug size={14} /> Connected Apps & OAuth
         </button>
         <button
           type="button"
@@ -286,168 +634,745 @@ export default function McpPage() {
             fetchHistory();
           }}
         >
-          <History size={14} /> Execution Audit History ({executions.length})
+          <History size={14} /> Tool Execution Audit ({executions.length})
         </button>
       </div>
 
+      {/* TAB 1: SERVERS */}
       {activeTab === "servers" && (
         loading ? (
           <div>
             <CardSkeleton />
-            <div style={{ marginTop: "16px" }}><CardSkeleton /></div>
+            <div style={{ marginTop: "16px" }}>
+              <CardSkeleton />
+            </div>
           </div>
         ) : servers.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">
-              <Server size={24} />
+              <Server size={28} />
             </div>
             <div className="empty-state-title">No MCP servers registered</div>
-            <div className="empty-state-desc">Add an MCP server to give your chatbot access to external tools and APIs.</div>
-            <button className="btn btn-primary btn-with-icon" onClick={() => setAddDialog(true)}>
+            <div className="empty-state-desc">
+              Add your own local command (npx, uv, python) or remote SSE server using the Antigravity configuration editor.
+            </div>
+            <button className="btn btn-primary btn-with-icon" onClick={() => setShowAddModal(true)}>
               <Plus size={15} /> Add MCP Server
             </button>
           </div>
         ) : (
-          servers.map((srv) => {
-            const sId = srv._id || srv.id;
-            const testInfo = testResults[sId];
-            return (
-              <div key={sId} className="mcp-server-card">
-                <div className="mcp-server-header">
-                  <div className="mcp-server-icon">
-                    <Server size={18} />
-                  </div>
-                  <div className="mcp-server-info">
-                    <div className="mcp-server-name">{srv.name}</div>
-                    <div className="mcp-server-desc">
-                      {srv.description || srv.url || srv.command || "Model Context Protocol Tool Provider"}
+          <div className="mcp-server-cards-list">
+            {servers.map((srv) => {
+              const sId = srv._id || srv.id;
+              const isConn = (srv.status || "").toLowerCase() === "connected";
+              const isConnecting = connectingId === sId;
+              const toolsList = srv.tools || [];
+              const enabledCount = toolsList.filter((t) => t.enabled !== false).length;
+              const testInfo = testResults[sId];
+
+              return (
+                <div key={sId} className="mcp-server-card">
+                  <div className="mcp-server-header">
+                    <div className="mcp-server-icon">
+                      {srv.transport?.toLowerCase().includes("http") || srv.transport?.toLowerCase().includes("sse") ? (
+                        <Globe size={18} />
+                      ) : (
+                        <Terminal size={18} />
+                      )}
                     </div>
-                  </div>
-                  <Badge variant={statusVariant(srv.status)} dot>{srv.status || "CONNECTED"}</Badge>
-                  <div className="mcp-transport-badge">
-                    {srv.transport || "STREAMABLE_HTTP"}
-                  </div>
+                    <div className="mcp-server-info">
+                      <div className="mcp-server-title-row">
+                        <span className="mcp-server-name">{srv.name}</span>
+                        <Badge variant={statusBadgeVariant(srv.status)} dot>
+                          {srv.status || "CONNECTED"}
+                        </Badge>
+                        <span className="mcp-transport-badge">
+                          {srv.transport || "STDIO"}
+                        </span>
+                        {srv.type === "builtin" && (
+                          <span className="mcp-type-badge">Built-in</span>
+                        )}
+                      </div>
+                      <div className="mcp-server-desc">
+                        {srv.description ||
+                          (srv.command
+                            ? `${srv.command} ${(srv.args || []).join(" ")}`
+                            : srv.url) ||
+                          "Model Context Protocol Provider"}
+                      </div>
+                    </div>
 
-                  <div className="mcp-server-actions">
-                    <button
-                      type="button"
-                      className="mcp-icon-btn"
-                      title="Test live connection to server"
-                      onClick={() => handleTestConnection(srv)}
-                      disabled={testingId === sId}
-                    >
-                      <Activity size={12} className={testingId === sId ? "spin" : ""} />
-                      <span>{testingId === sId ? "Testing..." : "Test Connection"}</span>
-                    </button>
+                    <div className="mcp-tools-metric">
+                      <span className="mcp-tools-count">
+                        {enabledCount} / {toolsList.length}
+                      </span>
+                      <span className="mcp-tools-label-sub">Tools Active</span>
+                    </div>
 
-                    <button
-                      type="button"
-                      className="mcp-icon-btn"
-                      title="Refresh discovered tools list"
-                      onClick={() => handleRefreshTools(srv)}
-                      disabled={refreshingId === sId}
-                    >
-                      <RefreshCw size={12} className={refreshingId === sId ? "spin" : ""} />
-                      <span>{refreshingId === sId ? "Refreshing..." : "Refresh Tools"}</span>
-                    </button>
-
-                    {srv.name !== "Builtin System Tools" && (
+                    <div className="mcp-server-actions">
+                      {/* Connect / Disconnect */}
                       <button
                         type="button"
-                        className="mcp-icon-btn danger"
-                        title="Delete server"
-                        onClick={() => handleDeleteServer(sId, srv.name)}
+                        className={`mcp-icon-btn ${isConn ? "connected-toggle" : "disconnected-toggle"}`}
+                        onClick={() => handleToggleConnect(srv)}
+                        disabled={isConnecting}
+                        title={isConn ? "Disconnect server" : "Connect server"}
                       >
-                        <Trash2 size={12} />
+                        <Power size={13} className={isConnecting ? "spin" : ""} />
+                        <span>{isConnecting ? "Updating..." : isConn ? "Connected" : "Connect"}</span>
                       </button>
-                    )}
+
+                      {/* Refresh tools */}
+                      <button
+                        type="button"
+                        className="mcp-icon-btn"
+                        onClick={() => handleRefresh(srv)}
+                        disabled={refreshingId === sId}
+                        title="Query server for new or updated tools"
+                      >
+                        <RefreshCw size={12} className={refreshingId === sId ? "spin" : ""} />
+                        <span>Refresh</span>
+                      </button>
+
+                      {/* Test Connection */}
+                      <button
+                        type="button"
+                        className="mcp-icon-btn"
+                        onClick={() => handleTest(srv)}
+                        disabled={testingId === sId}
+                        title="Perform roundtrip ping & discovery test"
+                      >
+                        <Activity size={12} className={testingId === sId ? "spin" : ""} />
+                        <span>Test</span>
+                      </button>
+
+                      {/* Manage Drawer */}
+                      <button
+                        type="button"
+                        className="mcp-icon-btn highlight"
+                        onClick={() => handleOpenManage(srv, "tools")}
+                        title="Manage tools, permissions, and configuration"
+                      >
+                        <Sliders size={12} />
+                        <span>Manage</span>
+                      </button>
+
+                      {/* Delete */}
+                      {srv.type !== "builtin" && srv.name !== "Builtin System Tools" && (
+                        <button
+                          type="button"
+                          className="mcp-icon-btn danger"
+                          onClick={() => handleDelete(srv)}
+                          title="Delete server"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Diagnostic Test Banner */}
+                  {testInfo && (
+                    <div
+                      className={`mcp-test-banner ${
+                        testInfo.success ? "success" : "danger"
+                      }`}
+                    >
+                      <span>
+                        {testInfo.success
+                          ? `✅ Connection Healthy: Discovered ${testInfo.toolCount} tools, ${
+                              testInfo.resourceCount || 0
+                            } resources, ${testInfo.promptCount || 0} prompts.`
+                          : `❌ Test Failed: ${testInfo.error}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTestResults((prev) => ({ ...prev, [sId]: null }))
+                        }
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Quick tool chips preview */}
+                  {toolsList.length > 0 && (
+                    <div className="mcp-quick-tools-preview">
+                      <span className="mcp-preview-label">Discovered Tools:</span>
+                      <div className="mcp-tool-chips">
+                        {toolsList.slice(0, 6).map((t) => (
+                          <span
+                            key={t.name}
+                            className={`mcp-tool-chip ${
+                              t.enabled === false ? "disabled" : ""
+                            }`}
+                            onClick={() => handleOpenManage(srv, "tools")}
+                            title={t.description || t.name}
+                          >
+                            <Wrench size={10} />
+                            <code>{t.name}</code>
+                          </span>
+                        ))}
+                        {toolsList.length > 6 && (
+                          <span
+                            className="mcp-tool-chip more"
+                            onClick={() => handleOpenManage(srv, "tools")}
+                          >
+                            +{toolsList.length - 6} more...
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {/* TAB 2: CONNECTED APPS */}
+      {activeTab === "apps" && (
+        <div className="mcp-apps-section">
+          <p className="page-desc" style={{ marginBottom: "16px" }}>
+            Preconfigured cloud integrations with OAuth authentication for Google Workspace, Notion, Slack, and Linear.
+          </p>
+          <div className="mcp-integrations-grid">
+            {integrations.map((app) => (
+              <div key={app.id} className="mcp-app-card">
+                <div className="mcp-app-header">
+                  <div className="mcp-app-name">{app.name}</div>
+                  <Badge variant={app.status === "connected" ? "success" : "neutral"}>
+                    {app.status === "connected" ? "CONNECTED" : "AVAILABLE"}
+                  </Badge>
+                </div>
+                <div className="mcp-app-desc">{app.description}</div>
+                <div className="mcp-app-tools-list">
+                  {(app.tools || []).map((t) => (
+                    <span key={t} className="mcp-app-tool-pill">
+                      <code>{t}</code>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: AUDIT HISTORY */}
+      {activeTab === "history" && (
+        <div className="mcp-server-card">
+          <div className="mcp-tools-label" style={{ marginBottom: "12px" }}>
+            Real-Time Tool Execution Audit Log ({executions.length} calls)
+          </div>
+          {executions.length === 0 ? (
+            <div style={{ fontSize: "12px", color: "var(--text-muted)", padding: "16px 0" }}>
+              No tool executions recorded yet. Call any enabled tool from the chat page to see executions appear here.
+            </div>
+          ) : (
+            <table className="mcp-history-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Tool</th>
+                  <th>Server</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Input Arguments</th>
+                </tr>
+              </thead>
+              <tbody>
+                {executions.map((ex) => (
+                  <tr key={ex._id || ex.id}>
+                    <td style={{ color: "var(--text-muted)", fontSize: "11px" }}>
+                      {new Date(ex.createdAt).toLocaleTimeString()}
+                    </td>
+                    <td>
+                      <code>{ex.toolName}</code>
+                    </td>
+                    <td>{ex.serverName || "MCP Server"}</td>
+                    <td>
+                      <span
+                        className={`badge-status ${
+                          ex.status === "completed"
+                            ? "success"
+                            : ex.status === "error"
+                            ? "error"
+                            : "rejected"
+                        }`}
+                      >
+                        {ex.status}
+                      </span>
+                    </td>
+                    <td>{ex.durationMs ? `${ex.durationMs}ms` : "-"}</td>
+                    <td>
+                      <pre
+                        style={{
+                          margin: 0,
+                          fontSize: "10px",
+                          maxHeight: "40px",
+                          overflowY: "hidden",
+                        }}
+                      >
+                        {JSON.stringify(ex.args || ex.arguments || {}, null, 1)}
+                      </pre>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* ADD MCP MODAL (Antigravity-Style JSON Editor & Guided Form) */}
+      {/* ============================================================ */}
+      {showAddModal && (
+        <Dialog open onOpenChange={setShowAddModal}>
+          <div className="mcp-modal-overlay">
+            <div className="mcp-modal-content">
+              <div className="mcp-modal-header">
+                <div>
+                  <DialogTitle className="mcp-modal-title">
+                    Configure Custom MCP Server
+                  </DialogTitle>
+                  <DialogDesc className="mcp-modal-desc">
+                    Paste an Antigravity MCP configuration or use the guided form to add command or remote servers.
+                  </DialogDesc>
+                </div>
+                <button
+                  type="button"
+                  className="mcp-btn-close"
+                  onClick={() => setShowAddModal(false)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Mode Switcher */}
+              <div className="mcp-modal-mode-tabs">
+                <button
+                  type="button"
+                  className={`mcp-mode-tab ${addMode === "editor" ? "active" : ""}`}
+                  onClick={() => setAddMode("editor")}
+                >
+                  <FileJson size={14} /> JSON Configuration Editor (Antigravity Style)
+                </button>
+                <button
+                  type="button"
+                  className={`mcp-mode-tab ${addMode === "guided" ? "active" : ""}`}
+                  onClick={() => setAddMode("guided")}
+                >
+                  <Sliders size={14} /> Guided Form
+                </button>
+              </div>
+
+              {/* Option A: JSON Configuration Editor */}
+              {addMode === "editor" && (
+                <div className="mcp-editor-container">
+                  <div className="mcp-templates-row">
+                    <span className="mcp-templates-title">Quick Templates:</span>
+                    {Object.entries(CONFIG_TEMPLATES).map(([key, item]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className="mcp-template-pill"
+                        onClick={() => handleApplyTemplate(key)}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mcp-editor-wrapper">
+                    <textarea
+                      className="mcp-json-textarea"
+                      rows={14}
+                      value={editorText}
+                      onChange={handleEditorChange}
+                      placeholder='{ "mcpServers": { "my-server": { "command": "npx", "args": [...] } } }'
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  {editorError ? (
+                    <div className="mcp-editor-error">
+                      <AlertTriangle size={13} />
+                      <span>{editorError}</span>
+                    </div>
+                  ) : (
+                    <div className="mcp-editor-valid">
+                      <Check size={13} />
+                      <span>Valid JSON configuration structure</span>
+                    </div>
+                  )}
+
+                  <div className="mcp-editor-options">
+                    <label className="mcp-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={autoConnectOnImport}
+                        onChange={(e) => setAutoConnectOnImport(e.target.checked)}
+                      />
+                      <span>Automatically connect and discover tools immediately</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Option B: Guided Form */}
+              {addMode === "guided" && (
+                <div className="mcp-guided-form">
+                  <div className="form-group">
+                    <label className="form-label">Server Name</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. calculator or github-tools"
+                      value={guidedForm.name}
+                      onChange={(e) =>
+                        setGuidedForm((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Transport Type</label>
+                    <select
+                      className="form-input"
+                      value={guidedForm.transport}
+                      onChange={(e) =>
+                        setGuidedForm((prev) => ({
+                          ...prev,
+                          transport: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="stdio">Local Stdio (Command / Process)</option>
+                      <option value="streamable-http">Streamable HTTP (Remote)</option>
+                      <option value="sse">Server-Sent Events (SSE)</option>
+                    </select>
+                  </div>
+
+                  {guidedForm.transport === "stdio" ? (
+                    <>
+                      <div className="form-group">
+                        <label className="form-label">Command Executable</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. npx, uv, python, node, docker"
+                          value={guidedForm.command}
+                          onChange={(e) =>
+                            setGuidedForm((prev) => ({
+                              ...prev,
+                              command: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Arguments (space separated)</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. -y @modelcontextprotocol/server-everything"
+                          value={guidedForm.args}
+                          onChange={(e) =>
+                            setGuidedForm((prev) => ({
+                              ...prev,
+                              args: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Environment Variables</label>
+                        {guidedForm.envVars.map((env, idx) => (
+                          <div key={idx} className="mcp-env-row">
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="KEY"
+                              value={env.key}
+                              onChange={(e) => {
+                                const newEnvs = [...guidedForm.envVars];
+                                newEnvs[idx].key = e.target.value;
+                                setGuidedForm((p) => ({ ...p, envVars: newEnvs }));
+                              }}
+                            />
+                            <input
+                              type="password"
+                              className="form-input"
+                              placeholder="VALUE"
+                              value={env.value}
+                              onChange={(e) => {
+                                const newEnvs = [...guidedForm.envVars];
+                                newEnvs[idx].value = e.target.value;
+                                setGuidedForm((p) => ({ ...p, envVars: newEnvs }));
+                              }}
+                            />
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          className="mcp-link-btn"
+                          onClick={() =>
+                            setGuidedForm((p) => ({
+                              ...p,
+                              envVars: [...p.envVars, { key: "", value: "" }],
+                            }))
+                          }
+                        >
+                          + Add Variable
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="form-group">
+                        <label className="form-label">Server Endpoint URL</label>
+                        <input
+                          type="url"
+                          className="form-input"
+                          placeholder="https://mcp.company.internal/sse"
+                          value={guidedForm.url}
+                          onChange={(e) =>
+                            setGuidedForm((prev) => ({
+                              ...prev,
+                              url: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Bearer Token / Authorization Header</label>
+                        <input
+                          type="password"
+                          className="form-input"
+                          placeholder="Secret token or Bearer key"
+                          value={guidedForm.authHeader}
+                          onChange={(e) =>
+                            setGuidedForm((prev) => ({
+                              ...prev,
+                              authHeader: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Modal Footer */}
+              <div className="mcp-modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowAddModal(false)}
+                >
+                  Cancel
+                </button>
+                {addMode === "editor" ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleImportConfig}
+                    disabled={importing || Boolean(editorError)}
+                  >
+                    {importing ? "Importing & Connecting..." : "Import & Connect"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleGuidedSubmit}
+                    disabled={importing}
+                  >
+                    {importing ? "Saving..." : "Save & Connect"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </Dialog>
+      )}
+
+      {/* ============================================================ */}
+      {/* SERVER DETAIL DRAWER (Tools, Config, Logs) */}
+      {/* ============================================================ */}
+      {managingServer && (
+        <div className="mcp-drawer-overlay" onClick={() => setManagingServer(null)}>
+          <div className="mcp-drawer-panel" onClick={(e) => e.stopPropagation()}>
+            {/* Drawer Header */}
+            <div className="mcp-drawer-header">
+              <div className="mcp-drawer-title-group">
+                <div className="mcp-drawer-server-name">{managingServer.name}</div>
+                <Badge variant={statusBadgeVariant(managingServer.status)} dot>
+                  {managingServer.status || "CONNECTED"}
+                </Badge>
+                <span className="mcp-transport-badge">{managingServer.transport}</span>
+              </div>
+              <button
+                type="button"
+                className="mcp-btn-close"
+                onClick={() => setManagingServer(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Drawer Tabs */}
+            <div className="mcp-drawer-nav">
+              <button
+                type="button"
+                className={`mcp-drawer-nav-item ${drawerTab === "tools" ? "active" : ""}`}
+                onClick={() => setDrawerTab("tools")}
+              >
+                <Wrench size={13} /> Tools ({managingServer.tools?.length || 0})
+              </button>
+              <button
+                type="button"
+                className={`mcp-drawer-nav-item ${drawerTab === "config" ? "active" : ""}`}
+                onClick={() => setDrawerTab("config")}
+              >
+                <FileJson size={13} /> Configuration
+              </button>
+              <button
+                type="button"
+                className={`mcp-drawer-nav-item ${drawerTab === "logs" ? "active" : ""}`}
+                onClick={() => setDrawerTab("logs")}
+              >
+                <History size={13} /> Executions ({serverLogs.length})
+              </button>
+              <button
+                type="button"
+                className={`mcp-drawer-nav-item ${drawerTab === "diagnostics" ? "active" : ""}`}
+                onClick={() => {
+                  setDrawerTab("diagnostics");
+                  fetchProcessLogs(managingServer._id || managingServer.id);
+                }}
+              >
+                <Terminal size={13} /> Diagnostics / Stderr
+              </button>
+            </div>
+
+            {/* DRAWER TAB 1: TOOLS */}
+            {drawerTab === "tools" && (
+              <div className="mcp-drawer-tab-content">
+                <div className="mcp-tools-toolbar">
+                  <div className="mcp-search-box">
+                    <Search size={14} className="icon-faint" />
+                    <input
+                      type="text"
+                      placeholder="Filter tools by name or description..."
+                      value={toolSearch}
+                      onChange={(e) => setToolSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="mcp-batch-actions">
+                    <button
+                      type="button"
+                      className="mcp-batch-btn"
+                      onClick={() =>
+                        handleBatchTools(
+                          managingServer._id || managingServer.id,
+                          "enable_all"
+                        )
+                      }
+                    >
+                      Enable All
+                    </button>
+                    <button
+                      type="button"
+                      className="mcp-batch-btn"
+                      onClick={() =>
+                        handleBatchTools(
+                          managingServer._id || managingServer.id,
+                          "disable_all"
+                        )
+                      }
+                    >
+                      Disable All
+                    </button>
                   </div>
                 </div>
 
-                {/* Connection Test Diagnostics Banner */}
-                {testInfo && (
-                  <div style={{
-                    marginTop: "10px",
-                    padding: "8px 12px",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                    background: testInfo.success ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)",
-                    color: testInfo.success ? "#10b981" : "#ef4444",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between"
-                  }}>
-                    <span>
-                      {testInfo.success
-                        ? `✅ Connection Healthy: Discovered ${testInfo.toolCount} tools, ${testInfo.resourceCount || 0} resources, ${testInfo.promptCount || 0} prompts.`
-                        : `❌ Connection Failed: ${testInfo.error}`}
-                    </span>
-                    <button
-                      type="button"
-                      style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: "11px" }}
-                      onClick={() => setTestResults((prev) => ({ ...prev, [sId]: null }))}
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                )}
-
-                {/* Tools List */}
-                <div className="mcp-tools-section">
-                  <div className="mcp-tools-label">Available Tools ({srv.tools?.length || 0})</div>
-                  {(!srv.tools || srv.tools.length === 0) ? (
-                    <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>No tools discovered yet. Click "Refresh Tools" to query server capabilities.</div>
+                <div className="mcp-tools-list-body">
+                  {filteredTools.length === 0 ? (
+                    <div className="mcp-empty-state-sub">
+                      {toolSearch ? "No tools match search filter" : "No tools exposed by this server"}
+                    </div>
                   ) : (
-                    srv.tools.map((tool) => {
-                      const requiresAppr = Boolean(tool.requiresApproval || tool.permission === "always_ask");
+                    filteredTools.map((tool) => {
+                      const sId = managingServer._id || managingServer.id;
                       const isEnabled = tool.enabled !== false;
+                      const currentPerm = tool.permission || (tool.requiresApproval ? "always_ask" : "auto");
                       const schemaKey = `${sId}:${tool.name}`;
                       const isSchemaOpen = Boolean(expandedSchemas[schemaKey]);
 
                       return (
-                        <div key={tool.name} className="mcp-tool-row">
-                          <div className="mcp-tool-main-row">
-                            <div className="mcp-tool-info">
-                              <div className="mcp-tool-name">
-                                <Wrench size={13} className="icon-faint" />
+                        <div key={tool.name} className="mcp-tool-card">
+                          <div className="mcp-tool-card-main">
+                            <div className="mcp-tool-details">
+                              <div className="mcp-tool-name-line">
+                                <Wrench size={13} className="mcp-tool-icon" />
                                 <code>{tool.name}</code>
+                                {tool.lastExecutionStatus && (
+                                  <span
+                                    className={`mcp-exec-status-pill ${tool.lastExecutionStatus}`}
+                                  >
+                                    Last run: {tool.lastExecutionStatus}
+                                  </span>
+                                )}
                               </div>
-                              <div className="mcp-tool-desc">{tool.description}</div>
+                              <div className="mcp-tool-desc-text">
+                                {tool.description || "No description provided by server."}
+                              </div>
                             </div>
 
-                            <div className="mcp-tool-controls">
-                              <div className="mcp-tool-control-group">
-                                <span className="mcp-control-label">Enabled</span>
+                            <div className="mcp-tool-actions-column">
+                              <div className="mcp-tool-switch-row">
+                                <span className="mcp-sub-label">Enabled</span>
                                 <Switch
                                   checked={isEnabled}
-                                  onChange={() => toggleToolEnabled(sId, tool.name, isEnabled)}
+                                  onChange={() =>
+                                    handleToggleTool(sId, tool.name, isEnabled)
+                                  }
                                 />
                               </div>
 
-                              <div className="mcp-tool-control-group">
-                                <span className="mcp-control-label">Approval Policy</span>
-                                <button
-                                  type="button"
-                                  className={`mcp-approval-btn ${requiresAppr ? "approval-required" : "approval-auto"}`}
-                                  onClick={() => togglePermission(sId, tool.name, requiresAppr)}
-                                  title={requiresAppr ? "Human approval is required before execution" : "Runs automatically without confirmation"}
+                              <div className="mcp-perm-select-row">
+                                <span className="mcp-sub-label">Authorization:</span>
+                                <select
+                                  className={`mcp-perm-select ${currentPerm}`}
+                                  value={currentPerm}
+                                  onChange={(e) =>
+                                    handleChangePermission(
+                                      sId,
+                                      tool.name,
+                                      e.target.value
+                                    )
+                                  }
                                 >
-                                  {requiresAppr ? (
-                                    <>
-                                      <AlertTriangle size={11} /> Required
-                                    </>
-                                  ) : (
-                                    <>
-                                      <CheckCircle size={11} /> Auto
-                                    </>
-                                  )}
-                                </button>
+                                  <option value="auto">Auto (No confirmation)</option>
+                                  <option value="always_ask">Always Ask (Human approval)</option>
+                                  <option value="deny">Deny (Blocked)</option>
+                                </select>
                               </div>
                             </div>
                           </div>
 
-                          {tool.inputSchema && Object.keys(tool.inputSchema).length > 0 && (
-                            <div>
+                          {/* Schema Preview */}
+                          {tool.inputSchema && (
+                            <div className="mcp-tool-schema-container">
                               <button
                                 type="button"
                                 className="mcp-schema-toggle"
@@ -459,7 +1384,7 @@ export default function McpPage() {
                                 }
                               >
                                 {isSchemaOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                                <span>{isSchemaOpen ? "Hide Input Schema" : "View Input Schema"}</span>
+                                <span>Input Schema {isSchemaOpen ? "(Hide)" : "(View)"}</span>
                               </button>
                               {isSchemaOpen && (
                                 <pre className="mcp-schema-box">
@@ -474,247 +1399,170 @@ export default function McpPage() {
                   )}
                 </div>
               </div>
-            );
-          })
-        )
-      )}
+            )}
 
-      {/* Connected Apps & Integrations Tab */}
-      {activeTab === "apps" && (
-        <div>
-          <div style={{ background: "rgba(59, 130, 246, 0.08)", border: "1px solid rgba(59, 130, 246, 0.25)", borderRadius: "8px", padding: "14px 18px", marginBottom: "18px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
-            <div>
-              <div style={{ fontWeight: 600, color: "var(--foreground)", fontSize: "14px" }}>
-                Connected Apps & Integrations
-              </div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
-                Connect third-party accounts (Gmail, Google Drive, Notion, GitHub, Slack) to execute live queries and actions in chat.
-              </div>
-            </div>
-            <Link to="/apps" className="btn btn-primary btn-sm" style={{ textDecoration: "none" }}>
-              <ExternalLink size={13} style={{ marginRight: "4px" }} /> Open Apps Marketplace
-            </Link>
-          </div>
+            {/* DRAWER TAB 2: CONFIGURATION */}
+            {drawerTab === "config" && (
+              <div className="mcp-drawer-tab-content">
+                <div className="mcp-config-notice">
+                  <Shield size={14} />
+                  <span>
+                    Sensitive environment variables and bearer tokens are masked with asterisks to protect secrets.
+                  </span>
+                </div>
 
-          {integrations.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">
-                <Plug size={24} />
+                <div className="mcp-editor-wrapper" style={{ marginTop: "12px" }}>
+                  <textarea
+                    className="mcp-json-textarea"
+                    rows={16}
+                    value={drawerConfigText}
+                    onChange={(e) => {
+                      setDrawerConfigText(e.target.value);
+                      try {
+                        JSON.parse(e.target.value);
+                        setDrawerConfigError(null);
+                      } catch (err) {
+                        setDrawerConfigError(err.message);
+                      }
+                    }}
+                    spellCheck={false}
+                  />
+                </div>
+
+                {drawerConfigError && (
+                  <div className="mcp-editor-error" style={{ marginTop: "8px" }}>
+                    <AlertTriangle size={13} />
+                    <span>{drawerConfigError}</span>
+                  </div>
+                )}
+
+                <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleSaveDrawerConfig}
+                    disabled={savingDrawerConfig || Boolean(drawerConfigError)}
+                  >
+                    {savingDrawerConfig ? "Saving & Reconnecting..." : "Save & Reconnect Server"}
+                  </button>
+                </div>
               </div>
-              <div className="empty-state-title">No Connected Apps loaded</div>
-              <div className="empty-state-desc">Open the Apps Marketplace to connect your personal or work accounts.</div>
-              <Link to="/apps" className="btn btn-primary btn-with-icon" style={{ textDecoration: "none" }}>
-                <Plug size={15} /> Go to Apps Marketplace
-              </Link>
-            </div>
-          ) : (
-            integrations.map((app) => (
-              <div key={app.id} className="mcp-server-card">
-                <div className="mcp-server-header">
-                  <div className="mcp-server-icon">
-                    {app.id === "gmail" ? <Mail size={18} color="#ea4335" /> :
-                     app.id === "google_drive" ? <HardDrive size={18} color="#34a853" /> :
-                     app.id === "google_calendar" ? <Calendar size={18} color="#4285f4" /> :
-                     app.id === "notion" ? <FileText size={18} /> :
-                     app.id === "github" ? <Github size={18} /> :
-                     app.id === "slack" ? <MessageSquare size={18} color="#e01e5a" /> :
-                     app.id === "linear" ? <CheckSquare size={18} color="#5e6ad2" /> :
-                     <Plug size={18} />}
+            )}
+
+            {/* DRAWER TAB 3: AUDIT LOGS */}
+            {drawerTab === "logs" && (
+              <div className="mcp-drawer-tab-content">
+                {serverLogs.length === 0 ? (
+                  <div className="mcp-empty-state-sub">
+                    No tool executions recorded for this server yet.
                   </div>
-                  <div className="mcp-server-info">
-                    <div className="mcp-server-name" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      {app.name}
-                      <span className="mcp-transport-badge">{app.category}</span>
-                    </div>
-                    <div className="mcp-server-desc">
-                      {app.description}
-                    </div>
+                ) : (
+                  <table className="mcp-history-table">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Tool</th>
+                        <th>Status</th>
+                        <th>Duration</th>
+                        <th>Arguments</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {serverLogs.map((log) => (
+                        <tr key={log._id || log.id}>
+                          <td style={{ color: "var(--text-muted)", fontSize: "11px" }}>
+                            {new Date(log.createdAt).toLocaleTimeString()}
+                          </td>
+                          <td>
+                            <code>{log.toolName}</code>
+                          </td>
+                          <td>
+                            <span
+                              className={`badge-status ${
+                                log.status === "completed"
+                                  ? "success"
+                                  : log.status === "error"
+                                  ? "error"
+                                  : "rejected"
+                              }`}
+                            >
+                              {log.status}
+                            </span>
+                          </td>
+                          <td>{log.durationMs ? `${log.durationMs}ms` : "-"}</td>
+                          <td>
+                            <pre
+                              style={{
+                                margin: 0,
+                                fontSize: "10px",
+                                maxHeight: "40px",
+                                overflowY: "hidden",
+                              }}
+                            >
+                              {JSON.stringify(log.args || log.arguments || {}, null, 1)}
+                            </pre>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
+            {/* DRAWER TAB 4: PROCESS STDERR & DIAGNOSTICS */}
+            {drawerTab === "diagnostics" && (
+              <div className="mcp-drawer-tab-content">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                  <span className="mcp-preview-label">
+                    Live Process Output & Stderr Stream (last 100 lines)
+                  </span>
+                  <button
+                    type="button"
+                    className="mcp-batch-btn"
+                    onClick={() => fetchProcessLogs(managingServer._id || managingServer.id)}
+                    disabled={loadingProcessLogs}
+                  >
+                    <RefreshCw size={11} className={loadingProcessLogs ? "spin" : ""} style={{ marginRight: "4px" }} />
+                    Refresh Logs
+                  </button>
+                </div>
+                {managingServer.lastError && (
+                  <div className="mcp-editor-error" style={{ marginBottom: "10px" }}>
+                    <AlertTriangle size={13} />
+                    <span>Last Error: {managingServer.lastError}</span>
                   </div>
-                  <div className="mcp-server-status">
-                    <span className={`badge-status ${app.isConnected ? "connected" : "disconnected"}`}>
-                      {app.isConnected ? "CONNECTED" : app.status === "coming_soon" ? "COMING SOON" : "AVAILABLE"}
+                )}
+                <div className="mcp-schema-box" style={{ maxHeight: "420px", fontSize: "11px", lineHeight: 1.5 }}>
+                  {processLogs.length === 0 ? (
+                    <span style={{ color: "var(--text-muted)" }}>
+                      No stderr or lifecycle logs recorded for this server yet.
                     </span>
-                    <Link to="/apps" className="btn btn-secondary btn-sm" style={{ textDecoration: "none" }}>
-                      {app.isConnected ? "Manage" : "Connect"}
-                    </Link>
-                  </div>
-                </div>
-
-                {/* Exposed App Tools List */}
-                <div className="mcp-tools-section">
-                  <div className="mcp-tools-header">
-                    <div className="mcp-tools-title">
-                      <Wrench size={12} />
-                      <span>Exposed Tools ({app.tools?.length || 0})</span>
-                    </div>
-                  </div>
-
-                  <div className="mcp-tools-grid">
-                    {(app.tools || []).map((tool) => (
-                      <div key={tool.name} className="mcp-tool-row">
-                        <div className="mcp-tool-details">
-                          <div className="mcp-tool-name-line">
-                            <span className="mcp-tool-name">{tool.fullName || tool.name}</span>
-                            <span className="mcp-tool-kind">
-                              {tool.writeOperation ? "WRITE ACTION" : "READ ONLY"}
-                            </span>
-                          </div>
-                          <div className="mcp-tool-desc">{tool.description}</div>
-                        </div>
-
-                        <div className="mcp-tool-actions">
-                          <div className="mcp-tool-control-group">
-                            <span className="mcp-control-label">Policy</span>
-                            <span className={`mcp-approval-btn ${tool.writeOperation ? "approval-required" : "approval-auto"}`}>
-                              {tool.writeOperation ? <AlertTriangle size={11} /> : <CheckCircle size={11} />}
-                              {tool.writeOperation ? "Approval Required" : "Auto Run"}
-                            </span>
-                          </div>
-                        </div>
+                  ) : (
+                    processLogs.map((entry, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          color:
+                            entry.level === "stderr" || entry.level === "error"
+                              ? "#f87171"
+                              : "#a1a1aa",
+                          marginBottom: "4px",
+                        }}
+                      >
+                        <span style={{ opacity: 0.6 }}>
+                          [{new Date(entry.timestamp).toLocaleTimeString()}] [{entry.level.toUpperCase()}]
+                        </span>{" "}
+                        {entry.text}
                       </div>
-                    ))}
-                  </div>
+                    ))
+                  )}
                 </div>
               </div>
-            ))
-          )}
+            )}
+          </div>
         </div>
       )}
-
-      {/* Execution Audit History Tab */}
-      {activeTab === "history" && (
-        <div className="mcp-server-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-            <div className="mcp-server-name">Recent Tool Executions</div>
-            <button type="button" className="mcp-icon-btn" onClick={fetchHistory}>
-              <RefreshCw size={12} /> Refresh Logs
-            </button>
-          </div>
-
-          {executions.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)", fontSize: "13px" }}>
-              No tool executions recorded yet. Ask the AI to perform queries or math in chat!
-            </div>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table className="mcp-history-table">
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Tool Name</th>
-                    <th>Server</th>
-                    <th>Duration</th>
-                    <th>Timestamp</th>
-                    <th>Input Arguments</th>
-                    <th>Result Summary</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {executions.map((ex) => (
-                    <tr key={ex.id || ex._id}>
-                      <td>
-                        <span className={`badge-status ${ex.status}`}>
-                          {ex.status}
-                        </span>
-                      </td>
-                      <td>
-                        <code>{ex.toolName}</code>
-                      </td>
-                      <td style={{ color: "var(--text-muted)" }}>{ex.serverName}</td>
-                      <td>{ex.durationMs ? `${ex.durationMs}ms` : "-"}</td>
-                      <td style={{ color: "var(--text-muted)", fontSize: "11px" }}>
-                        {ex.createdAt ? new Date(ex.createdAt).toLocaleTimeString() : "-"}
-                      </td>
-                      <td>
-                        <pre style={{ margin: 0, fontSize: "10px", maxHeight: "40px", overflow: "hidden" }}>
-                          {typeof ex.args === "string" ? ex.args : JSON.stringify(ex.args)}
-                        </pre>
-                      </td>
-                      <td>
-                        <span style={{ fontSize: "11px", color: ex.error ? "#ef4444" : "var(--text-muted)" }}>
-                          {ex.error || ex.resultSummary || "Completed"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Add Server Dialog */}
-      <Dialog open={addDialog} onClose={() => setAddDialog(false)}>
-        <DialogTitle>Add MCP Server</DialogTitle>
-        <DialogDesc>Connect a new local or remote Model Context Protocol server.</DialogDesc>
-        <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
-          <div>
-            <label className="form-label">Server Name</label>
-            <input
-              className="input"
-              type="text"
-              placeholder="e.g. Remote Weather MCP"
-              value={newServer.name}
-              onChange={(e) => setNewServer({ ...newServer, name: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label className="form-label">Transport</label>
-            <select
-              className="input"
-              value={newServer.transport}
-              onChange={(e) => setNewServer({ ...newServer, transport: e.target.value })}
-            >
-              <option value="STREAMABLE_HTTP">Streamable HTTP (Standard for Remote MCP)</option>
-              <option value="SSE">SSE (Server-Sent Events HTTP)</option>
-              <option value="STDIO">STDIO (Local sub-process)</option>
-            </select>
-          </div>
-
-          {newServer.transport !== "STDIO" ? (
-            <div>
-              <label className="form-label">Server URL</label>
-              <input
-                className="input"
-                type="url"
-                placeholder="https://api.my-mcp-server.com/mcp"
-                value={newServer.url}
-                onChange={(e) => setNewServer({ ...newServer, url: e.target.value })}
-              />
-            </div>
-          ) : (
-            <div>
-              <label className="form-label">Command Line (Local Development)</label>
-              <input
-                className="input"
-                type="text"
-                placeholder="node packages/mcp-servers/builtin-server.js"
-                value={newServer.command}
-                onChange={(e) => setNewServer({ ...newServer, command: e.target.value })}
-              />
-            </div>
-          )}
-
-          {newServer.transport !== "STDIO" && (
-            <div>
-              <label className="form-label">Optional Bearer Token / API Key</label>
-              <input
-                className="input"
-                type="password"
-                placeholder="Optional Authorization token"
-                value={newServer.authHeader}
-                onChange={(e) => setNewServer({ ...newServer, authHeader: e.target.value })}
-              />
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <button className="btn btn-secondary" onClick={() => setAddDialog(false)}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleAddServer}>Connect & Discover</button>
-        </DialogFooter>
-      </Dialog>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { z } from "zod";
 import config from "../../config/index.js";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { tenantGuard } from "../../middleware/tenant-guard.middleware.js";
+import { requireRole } from "../../middleware/rbac.middleware.js";
 import { validate, objectIdSchema } from "../../middleware/validation.middleware.js";
 import { enforceQuota } from "../../middleware/quota-guard.middleware.js";
 import sourcesController from "./sources.controller.js";
@@ -20,7 +21,7 @@ const upload = multer({
 const createUrlSourceSchema = z
   .object({
     knowledgeBaseId: objectIdSchema,
-    name: z.string().min(1).trim(),
+    name: z.string().min(1).trim().optional(),
     url: z.string().url("Valid URL is required"),
   })
   .strict();
@@ -34,12 +35,12 @@ const idParamsSchema = z
 router.use(authenticate, tenantGuard);
 
 router.get("/", sourcesController.list);
-router.post("/", enforceQuota("documents"), validate({ body: createUrlSourceSchema }), sourcesController.create);
+router.post("/", requireRole("OWNER", "ADMIN", "MEMBER"), enforceQuota("documents"), validate({ body: createUrlSourceSchema }), sourcesController.create);
 router.get("/:id", validate({ params: idParamsSchema }), sourcesController.getById);
 router.get("/:id/chunks", validate({ params: idParamsSchema }), sourcesController.listChunks);
-router.post("/:id/reindex", validate({ params: idParamsSchema }), sourcesController.reindex);
-router.delete("/:id", validate({ params: idParamsSchema }), sourcesController.delete);
-router.post("/upload", enforceQuota("documents"), upload.single("file"), sourcesController.upload);
+router.post("/:id/reindex", requireRole("OWNER", "ADMIN", "MEMBER"), validate({ params: idParamsSchema }), sourcesController.reindex);
+router.delete("/:id", requireRole("OWNER", "ADMIN", "MEMBER"), validate({ params: idParamsSchema }), sourcesController.delete);
+router.post("/upload", requireRole("OWNER", "ADMIN", "MEMBER"), enforceQuota("documents"), upload.single("file"), sourcesController.upload);
 
 export default router;
 

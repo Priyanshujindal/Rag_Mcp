@@ -96,6 +96,29 @@ export const authService = {
       role: "OWNER",
     });
 
+    // Accept any pending workspace invitations for this email
+    try {
+      const { WorkspaceInvite } = await import("../../db/models/workspace-invite.model.js");
+      const pendingInvites = await WorkspaceInvite.find({
+        email: user.email.toLowerCase(),
+        status: "pending",
+      });
+      for (const inv of pendingInvites) {
+        const exists = await Membership.findOne({ userId: user._id, workspaceId: inv.workspaceId });
+        if (!exists) {
+          await Membership.create({
+            userId: user._id,
+            workspaceId: inv.workspaceId,
+            role: inv.role,
+          });
+        }
+        inv.status = "accepted";
+        await inv.save();
+      }
+    } catch {
+      // Non-fatal if invites check fails
+    }
+
     const accessToken = generateAccessToken(user);
     const { rawToken: refreshToken } = await createRefreshToken(user._id, metadata);
 

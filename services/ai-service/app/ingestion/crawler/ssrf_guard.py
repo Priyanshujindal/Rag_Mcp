@@ -190,8 +190,9 @@ async def safe_fetch_url(
 
         headers = {
             "Host": hostname,
-            "User-Agent": "RagMcp-Crawler/1.0 (+https://rag-mcp.ai/bot)",
-            "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
         }
 
         async with httpx.AsyncClient(
@@ -206,9 +207,14 @@ async def safe_fetch_url(
                     headers=headers,
                     extensions={"sni_hostname": hostname} if scheme == "https" else {},
                 )
-            except Exception as e:
+                # Some CDNs/WAFs (e.g. Cloudflare/Fastly) reject IP-pinned URLs with 403/421
+                if res.status_code in (403, 421):
+                    fallback_headers = {k: v for k, v in headers.items() if k != "Host"}
+                    res = await client.get(current_url, headers=fallback_headers)
+            except Exception:
                 # Fallback to standard request if IP-SNI fails on local environments
-                res = await client.get(current_url, headers=headers)
+                fallback_headers = {k: v for k, v in headers.items() if k != "Host"}
+                res = await client.get(current_url, headers=fallback_headers)
 
             # Check redirect status
             if res.status_code in (301, 302, 303, 307, 308):

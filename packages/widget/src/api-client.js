@@ -66,6 +66,7 @@ export async function streamPublicChat({
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
+    let capturedConversationId = conversationId || null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -99,29 +100,42 @@ export async function streamPublicChat({
           return;
         }
 
-        if (eventType === "token") {
+        if (eventType === "conversation") {
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed?.conversationId) {
+              capturedConversationId = parsed.conversationId;
+            }
+          } catch {}
+        } else if (eventType === "token") {
           try {
             const parsed = JSON.parse(dataStr);
             const delta = parsed.delta || parsed.token || "";
             if (delta && onToken) onToken(delta);
           } catch {}
-        } else if (eventType === "citation") {
+        } else if (eventType === "citation" || eventType === "citations") {
           try {
             const parsed = JSON.parse(dataStr);
-            if (onCitation) onCitation(parsed);
+            if (onCitation) {
+              if (Array.isArray(parsed)) {
+                parsed.forEach((c) => onCitation(c));
+              } else {
+                onCitation(parsed);
+              }
+            }
           } catch {}
         } else if (eventType === "done") {
           try {
             const parsed = JSON.parse(dataStr);
-            if (onDone) onDone(parsed);
+            if (onDone) onDone({ conversationId: capturedConversationId, ...parsed });
           } catch {
-            if (onDone) onDone({});
+            if (onDone) onDone({ conversationId: capturedConversationId });
           }
         }
       }
     }
 
-    if (onDone) onDone({});
+    if (onDone) onDone({ conversationId: capturedConversationId });
   } catch (err) {
     if (onError) onError(err);
   }

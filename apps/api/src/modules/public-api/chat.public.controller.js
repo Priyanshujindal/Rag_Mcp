@@ -210,7 +210,10 @@ export const publicChatController = {
     try {
       if (fs.existsSync(WIDGET_DIST_PATH)) {
         res.setHeader("Content-Type", "application/javascript; charset=utf-8");
-        res.setHeader("Cache-Control", "public, max-age=3600");
+        res.setHeader(
+          "Cache-Control",
+          process.env.NODE_ENV === "production" ? "public, max-age=300" : "no-cache"
+        );
         return res.sendFile(WIDGET_DIST_PATH);
       }
 

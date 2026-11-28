@@ -19,6 +19,10 @@ const AppsPage           = React.lazy(() => import("@/pages/dashboard/apps"));
 const ApiKeysPage        = React.lazy(() => import("@/pages/dashboard/api-keys"));
 const UsagePage          = React.lazy(() => import("@/pages/dashboard/usage"));
 const EvalsPage          = React.lazy(() => import("@/pages/dashboard/evals"));
+const TeamPage           = React.lazy(() => import("@/pages/dashboard/team"));
+const PublicBotPage      = React.lazy(() => import("@/pages/public/bot"));
+const PrivacyPage        = React.lazy(() => import("@/pages/public/privacy"));
+const TermsPage          = React.lazy(() => import("@/pages/public/terms"));
 const LoginPage          = React.lazy(() => import("@/pages/auth/login"));
 const RegisterPage       = React.lazy(() => import("@/pages/auth/register"));
 
@@ -49,6 +53,23 @@ function lazy(Component) {
 // Router definition
 // ---------------------------------------------------------------------------
 export const router = createBrowserRouter([
+  // Public Shareable Chatbot & Legal Routes (no auth required)
+  {
+    path: "/bot/:publicId",
+    element: lazy(PublicBotPage),
+    errorElement: <RouteError />,
+  },
+  {
+    path: "/privacy",
+    element: lazy(PrivacyPage),
+    errorElement: <RouteError />,
+  },
+  {
+    path: "/terms",
+    element: lazy(TermsPage),
+    errorElement: <RouteError />,
+  },
+
   // Auth routes — redirect to "/" when already signed in
   {
     element: <AuthLayout />,
@@ -77,7 +98,9 @@ export const router = createBrowserRouter([
       { path: "/apps",             element: lazy(AppsPage) },
       { path: "/dashboard/apps",   element: lazy(AppsPage) },
       { path: "/mcp",              element: lazy(McpPage) },
+      { path: "/dashboard/mcp",    element: lazy(McpPage) },
       { path: "/api-keys",         element: lazy(ApiKeysPage) },
+      { path: "/team",             element: lazy(TeamPage) },
       { path: "/usage",            element: lazy(UsagePage) },
       { path: "/dashboard/usage",  element: lazy(UsagePage) },
       { path: "/evals",            element: lazy(EvalsPage) },

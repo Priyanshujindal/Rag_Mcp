@@ -27,6 +27,7 @@ import {
   revokeApiKey,
   deleteApiKey,
   getApiKeyUsage,
+  getApiOrigin,
   isMock,
 } from "@/lib/api";
 import "./api-keys.css";
@@ -51,6 +52,7 @@ function formatRelativeTime(iso) {
 }
 
 export default function ApiKeysPage() {
+  const apiOrigin = getApiOrigin();
   const [keys, setKeys] = useState([]);
   const [chatbots, setChatbots] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -578,9 +580,9 @@ export default function ApiKeysPage() {
                 onClick={() => {
                   let codeToCopy = "";
                   if (docSnippetLang === "curl") {
-                    codeToCopy = `curl -X POST "http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}/messages" \\\n  -H "Authorization: Bearer rag_sk_live_YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "message": "What is our company return policy?",\n    "visitorId": "user_visitor_123"\n  }'`;
+                    codeToCopy = `curl -X POST "${apiOrigin}/api/v1/public/chatbots/${sampleChatbotId}/messages" \\\n  -H "Authorization: Bearer rag_sk_live_YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "message": "What is our company return policy?",\n    "visitorId": "user_visitor_123"\n  }'`;
                   } else if (docSnippetLang === "javascript") {
-                    codeToCopy = `// Browser SSE Streaming with Publishable Key\nconst response = await fetch("http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}/messages/stream", {\n  method: "POST",\n  headers: {\n    "x-api-key": "rag_pk_live_YOUR_KEY",\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify({\n    message: "Hello chatbot!",\n    visitorId: "anon_visitor_abc"\n  })\n});`;
+                    codeToCopy = `// Browser SSE Streaming with Publishable Key\nconst response = await fetch("${apiOrigin}/api/v1/public/chatbots/${sampleChatbotId}/messages/stream", {\n  method: "POST",\n  headers: {\n    "x-api-key": "rag_pk_live_YOUR_KEY",\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify({\n    message: "Hello chatbot!",\n    visitorId: "anon_visitor_abc"\n  })\n});`;
                   }
                   handleCopy(codeToCopy);
                 }}
@@ -592,7 +594,7 @@ export default function ApiKeysPage() {
             <pre className="api-snippet-content">
               {docSnippetLang === "curl" &&
 `# 1. Synchronous Message Request (Returns JSON response)
-curl -X POST "http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}/messages" \\
+curl -X POST "${apiOrigin}/api/v1/public/chatbots/${sampleChatbotId}/messages" \\
   -H "Authorization: Bearer rag_sk_live_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -601,7 +603,7 @@ curl -X POST "http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}/me
   }'
 
 # 2. Real-time Streaming SSE Response (Live token chunks)
-curl -N -X POST "http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}/messages/stream" \\
+curl -N -X POST "${apiOrigin}/api/v1/public/chatbots/${sampleChatbotId}/messages/stream" \\
   -H "Authorization: Bearer rag_pk_live_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -610,13 +612,13 @@ curl -N -X POST "http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}
   }'
 
 # 3. Safe Public Chatbot Configuration
-curl "http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}" \\
+curl "${apiOrigin}/api/v1/public/chatbots/${sampleChatbotId}" \\
   -H "Authorization: Bearer rag_pk_live_YOUR_KEY"`}
 
               {docSnippetLang === "javascript" &&
 `// Browser Client / Frontend Integration using Publishable Key
 async function askChatbot(userMessage, visitorId) {
-  const response = await fetch("http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}/messages/stream", {
+  const response = await fetch("${apiOrigin}/api/v1/public/chatbots/${sampleChatbotId}/messages/stream", {
     method: "POST",
     headers: {
       "Authorization": "Bearer rag_pk_live_YOUR_PUBLISHABLE_KEY",
@@ -655,7 +657,7 @@ async function askChatbot(userMessage, visitorId) {
 import fetch from "node-fetch";
 
 async function queryRagChatbot(prompt) {
-  const res = await fetch("http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}/messages", {
+  const res = await fetch("${apiOrigin}/api/v1/public/chatbots/${sampleChatbotId}/messages", {
     method: "POST",
     headers: {
       "Authorization": "Bearer rag_sk_live_YOUR_SECRET_KEY",
@@ -685,7 +687,7 @@ async function queryRagChatbot(prompt) {
 `# Python Backend Integration using Secret Key
 import requests
 
-url = "http://localhost:8000/api/v1/public/chatbots/${sampleChatbotId}/messages"
+url = "${apiOrigin}/api/v1/public/chatbots/${sampleChatbotId}/messages"
 headers = {
     "Authorization": "Bearer rag_sk_live_YOUR_SECRET_KEY",
     "Content-Type": "application/json"

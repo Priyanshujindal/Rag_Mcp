@@ -19,8 +19,25 @@ const PRESET_COLORS = [
  * @param {React.Dispatch<React.SetStateAction<object>>} props.setThemeConfig - State setter for themeConfig
  * @param {string} props.simulatedSiteUrl - Fallback website URL for preview
  */
-export function CustomizeTab({ themeConfig, setThemeConfig, simulatedSiteUrl }) {
+export function CustomizeTab({ bot, themeConfig, setThemeConfig, onSaveTheme, simulatedSiteUrl }) {
   const [newQuestion, setNewQuestion] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
+
+  const handleSave = async () => {
+    if (!onSaveTheme) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      await onSaveTheme();
+      setSaveMsg("Saved!");
+      setTimeout(() => setSaveMsg(null), 2500);
+    } catch (err) {
+      setSaveMsg(`Error: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const addQuestion = () => {
     if (!newQuestion.trim()) return;
@@ -184,19 +201,26 @@ export function CustomizeTab({ themeConfig, setThemeConfig, simulatedSiteUrl }) 
           </div>
         </div>
 
-        <div className="customizer-actions">
+        <div className="customizer-actions" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => alert("Settings saved successfully!")}
+            onClick={handleSave}
+            disabled={saving}
           >
-            Save Changes
+            {saving ? "Saving..." : "Save Changes"}
           </button>
+          {saveMsg && (
+            <span style={{ fontSize: "12px", color: saveMsg.startsWith("Error") ? "#ef4444" : "#10b981" }}>
+              {saveMsg}
+            </span>
+          )}
         </div>
       </div>
 
       {/* Right Panel: Instant Live Interactive Widget Preview */}
       <LiveWidgetPreview
+        publicId={bot?.publicId || bot?.id}
         config={themeConfig}
         simulatedSiteUrl={simulatedSiteUrl}
       />

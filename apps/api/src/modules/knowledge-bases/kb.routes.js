@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { tenantGuard } from "../../middleware/tenant-guard.middleware.js";
+import { requireRole } from "../../middleware/rbac.middleware.js";
 import { validate, objectIdSchema } from "../../middleware/validation.middleware.js";
 import { enforceQuota } from "../../middleware/quota-guard.middleware.js";
 import kbController from "./kb.controller.js";
@@ -34,6 +35,7 @@ router.use(authenticate, tenantGuard);
 router.get("/", kbController.list);
 router.post(
   "/",
+  requireRole("OWNER", "ADMIN", "MEMBER"),
   enforceQuota("knowledgeBases"),
   validate({ body: createKbSchema }),
   kbController.create
@@ -41,10 +43,11 @@ router.post(
 router.get("/:id", validate({ params: idParamsSchema }), kbController.getById);
 router.patch(
   "/:id",
+  requireRole("OWNER", "ADMIN", "MEMBER"),
   validate({ params: idParamsSchema, body: updateKbSchema }),
   kbController.update
 );
-router.delete("/:id", validate({ params: idParamsSchema }), kbController.delete);
+router.delete("/:id", requireRole("OWNER", "ADMIN", "MEMBER"), validate({ params: idParamsSchema }), kbController.delete);
 
 export default router;
 

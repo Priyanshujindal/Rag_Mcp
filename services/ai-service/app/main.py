@@ -1,4 +1,5 @@
 import inspect
+import os
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
@@ -28,6 +29,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     settings = get_settings()
     setup_logging()
+    sentry_dsn = getattr(settings, "SENTRY_DSN", None) or os.environ.get("SENTRY_DSN")
+    if sentry_dsn:
+        try:
+            import sentry_sdk
+            sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=0.1)
+            logger.info("Sentry observability initialized for AI service")
+        except ImportError:
+            logger.warning("SENTRY_DSN is set but sentry-sdk is not installed")
     logger.info("Initializing Rag_Mcp AI service", extra={"provider": settings.EMBEDDING_PROVIDER})
 
     # Validate embedding model dimensions against config

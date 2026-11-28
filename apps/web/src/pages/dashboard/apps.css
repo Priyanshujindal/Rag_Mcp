@@ -847,3 +847,66 @@
   text-align: center;
   gap: 1rem;
 }
+
+/* Custom MCP App Integration Styles */
+.btn-add-custom-mcp {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.btn-add-custom-mcp:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+
+.icon-mcp {
+  color: #818cf8;
+}
+
+.app-category-pill.mcp-cat-pill {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.btn-mcp-power {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border, #334155);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--foreground, #f8fafc);
+  transition: all 0.15s ease;
+}
+
+.btn-mcp-power:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.btn-mcp-power.is-on {
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.btn-mcp-power.is-on:hover {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+}

@@ -417,6 +417,34 @@ export async function toggleMcpTool(serverId, toolName, { enabled, permission, r
   return api.patch(`/mcp/${serverId}/tools/${toolName}`, { enabled, permission, requiresApproval });
 }
 
+export async function batchUpdateMcpTools(id, action) {
+  return api.patch(`/mcp/${id}/tools`, { action });
+}
+
+export async function importMcpConfig(config, options = {}) {
+  return api.post("/mcp/import", { config, ...options });
+}
+
+export async function connectMcpServer(id) {
+  return api.post(`/mcp/${id}/connect`);
+}
+
+export async function disconnectMcpServer(id) {
+  return api.post(`/mcp/${id}/disconnect`);
+}
+
+export async function getMcpConfig(id) {
+  return api.get(`/mcp/${id}/config`);
+}
+
+export async function updateMcpConfig(id, config) {
+  return api.put(`/mcp/${id}/config`, { config });
+}
+
+export async function getMcpServerLogs(id) {
+  return api.get(`/mcp/${id}/logs`);
+}
+
 export async function getMcpExecutions(limit = 50) {
   const data = await api.get(`/mcp/executions?limit=${limit}`);
   return Array.isArray(data) ? data : [];
@@ -475,5 +503,34 @@ export async function testConnectedAccount(id) {
 
 export async function disconnectAccount(id) {
   return api.delete(`/integrations/connections/${id}`);
+}
+
+// ----------------- Workspace Team & RBAC -----------------
+export async function getTeamMembers() {
+  return api.get("/team/members");
+}
+
+export async function inviteTeamMember(data) {
+  return api.post("/team/invite", data);
+}
+
+export async function updateTeamMemberRole(membershipId, role) {
+  return api.patch(`/team/members/${membershipId}`, { role });
+}
+
+export async function removeTeamMember(membershipId) {
+  return api.delete(`/team/members/${membershipId}`);
+}
+
+export async function revokeTeamInvite(inviteId) {
+  return api.delete(`/team/invites/${inviteId}`);
+}
+
+export async function resendTeamInvite(inviteId) {
+  return api.post(`/team/invites/${inviteId}/resend`);
+}
+
+export async function leaveWorkspace() {
+  return api.post("/team/leave");
 }
 

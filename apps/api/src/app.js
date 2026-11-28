@@ -13,6 +13,7 @@ import logger from "./utils/logger.js";
 import { notFoundHandler, errorHandler } from "./middleware/error.middleware.js";
 import { noSqlDefenseMiddleware } from "./middleware/nosql-defense.middleware.js";
 import { validate, objectIdSchema } from "./middleware/validation.middleware.js";
+import { initObservability } from "./utils/observability.js";
 
 // Module routes
 import authRoutes from "./modules/auth/auth.routes.js";
@@ -30,11 +31,13 @@ import chatRoutes from "./modules/chat/chat.routes.js";
 import evalsRoutes from "./modules/evals/evals.routes.js";
 import artifactsRoutes from "./modules/artifacts/artifacts.routes.js";
 import integrationsRoutes from "./modules/integrations/integrations.routes.js";
+import teamRoutes from "./modules/team/team.routes.js";
 
 /**
  * Builds and configures the Express application
  */
 export function createApp() {
+  initObservability();
   const app = express();
 
   // 0. Trust Proxy (never trust X-Forwarded-For by default)
@@ -179,6 +182,7 @@ export function createApp() {
   app.use("/api/v1/api-keys", apiKeysRoutes);
   app.use("/api/v1/mcp", mcpRoutes);
   app.use("/api/v1/integrations", integrationsRoutes);
+  app.use("/api/v1/team", teamRoutes);
   app.use("/api/v1/usage", usageRoutes);
   app.use("/api/v1/chat", chatRoutes);
   app.use("/api/v1/evals", evalsRoutes);

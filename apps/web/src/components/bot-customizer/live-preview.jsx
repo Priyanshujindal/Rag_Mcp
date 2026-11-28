@@ -1,7 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { MessageSquare, X, Send, Bot, Globe } from "lucide-react";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { isMock } from "@/lib/api";
 
-export function LiveWidgetPreview({ config, simulatedSiteUrl = "https://yourwebsite.com" }) {
+const API_BASE =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "/api/v1";
+
+export function LiveWidgetPreview({ publicId, config, simulatedSiteUrl = "https://yourwebsite.com" }) {
   const [isOpen, setIsOpen] = useState(true);
   const [messages, setMessages] = useState([
     {
@@ -11,37 +16,133 @@ export function LiveWidgetPreview({ config, simulatedSiteUrl = "https://yourwebs
     },
   ]);
   const [inputValue, setInputValue] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
+
+  useEffect(() => {
+    setMessages((prev) => {
+      if (prev.length === 1 && prev[0].id === "w_msg_1") {
+        return [{ ...prev[0], text: config.welcomeMessage || "Hi there! 👋 How can I help you today?" }];
+      }
+      return prev;
+    });
+  }, [config.welcomeMessage]);
 
   const brandColor = config.primaryColor || "var(--accent)";
   const isDark = config.theme === "dark";
   const isLeft = config.position === "bottom-left";
   const borderRadius = config.borderRadius || "16px";
 
-  const handleSend = () => {
-    if (!inputValue.trim()) return;
-    const userText = inputValue;
-    setInputValue("");
+  const handleSend = async (overrideText) => {
+    const userText = (typeof overrideText === "string" ? overrideText : inputValue).trim();
+    if (!userText || streaming) return;
+    if (typeof overrideText !== "string") setInputValue("");
 
-    const newMsgs = [
-      ...messages,
+    const botMsgId = `b_${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
       { id: `u_${Date.now()}`, sender: "user", text: userText },
-    ];
-    setMessages(newMsgs);
+      ...(isMock || !publicId
+        ? []
+        : [{ id: botMsgId, sender: "bot", text: "" }]),
+    ]);
 
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
+    if (isMock || !publicId) {
+      setTimeout(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: botMsgId,
+            sender: "bot",
+            text: `Thanks for asking about "${userText}". Based on the knowledge base, here is the verified information!`,
+          },
+        ]);
+      }, 400);
+      return;
+    }
+
+    setStreaming(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/public/chatbots/${encodeURIComponent(publicId)}/chat`,
         {
-          id: `b_${Date.now()}`,
-          sender: "bot",
-          text: `Thanks for asking about "${userText}". Based on the knowledge base, here is the verified information!`,
-        },
-      ]);
-    }, 600);
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: userText,
+            ...(conversationId ? { conversationId } : {}),
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error?.message || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let currentEvent = "message";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line) {
+            currentEvent = "message";
+            continue;
+          }
+          if (line.startsWith("event:")) {
+            currentEvent = line.slice(6).trim();
+            continue;
+          }
+          if (line.startsWith("data:")) {
+            const rawData = line.slice(5).trim();
+            if (!rawData || rawData === "[DONE]") continue;
+            try {
+              const payload = JSON.parse(rawData);
+              if (currentEvent === "conversation" && payload.conversationId) {
+                setConversationId(payload.conversationId);
+              } else if (
+                (currentEvent === "token" || currentEvent === "delta") &&
+                (payload.delta || payload.token)
+              ) {
+                const chunk = payload.delta || payload.token;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === botMsgId ? { ...m, text: m.text + chunk } : m
+                  )
+                );
+              } else if (currentEvent === "error") {
+                throw new Error(payload.message || "Chat stream error");
+              }
+            } catch (parseErr) {
+              if (currentEvent === "error") throw parseErr;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === botMsgId
+            ? { ...m, text: m.text || `⚠️ ${err.message}` }
+            : m
+        )
+      );
+    } finally {
+      setStreaming(false);
+    }
   };
 
   const handleSuggestedClick = (q) => {
-    setInputValue(q);
+    handleSend(q);
   };
 
   return (
@@ -119,7 +220,13 @@ export function LiveWidgetPreview({ config, simulatedSiteUrl = "https://yourwebs
                         className={`widget-msg-row ${isUser ? "user" : "bot"}`}
                       >
                         <div className={`widget-msg ${isUser ? "user" : "bot"}`}>
-                          {m.text}
+                          {isUser ? (
+                            m.text
+                          ) : m.text ? (
+                            <MarkdownRenderer content={m.text} />
+                          ) : (
+                            "Thinking..."
+                          )}
                         </div>
                       </div>
                     );

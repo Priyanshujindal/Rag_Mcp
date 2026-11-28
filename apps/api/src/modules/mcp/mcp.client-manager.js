@@ -19,8 +19,54 @@ import logger from "../../utils/logger.js";
 // Active client instances keyed by serverId string
 const activeClients = new Map();
 
+// Per-server stderr/diagnostics ring buffer (last 100 entries)
+const serverLogs = new Map();
+const MAX_LOG_LINES = 100;
+
 // Connection timeout constant (15 seconds)
 const CONNECT_TIMEOUT_MS = 15000;
+const MAX_STDIO_PER_WORKSPACE = Number(process.env.MAX_MCP_STDIO_PER_WORKSPACE) || 5;
+const IDLE_TIMEOUT_MS = Number(process.env.MCP_IDLE_TIMEOUT_MS) || 15 * 60 * 1000;
+
+function appendServerLog(serverId, level, text) {
+  const id = String(serverId);
+  if (!serverLogs.has(id)) {
+    serverLogs.set(id, []);
+  }
+  const buf = serverLogs.get(id);
+  const lines = String(text || "").split(/\r?\n/).filter((l) => l.trim() !== "");
+  for (const line of lines) {
+    buf.push({
+      timestamp: new Date().toISOString(),
+      level,
+      text: line.slice(0, 2000),
+    });
+    if (buf.length > MAX_LOG_LINES) {
+      buf.shift();
+    }
+  }
+}
+
+// Sweep idle stdio/remote MCP connections every 5 minutes
+const idleSweepTimer = setInterval(async () => {
+  const now = Date.now();
+  for (const [serverId, session] of activeClients.entries()) {
+    if (session.serverConfig?.type === "builtin") continue;
+    const lastUsed = session.lastUsedAt || new Date(session.connectedAt).getTime();
+    if (now - lastUsed > IDLE_TIMEOUT_MS) {
+      logger.info({ serverId }, "Auto-disconnecting idle MCP server");
+      appendServerLog(serverId, "info", "Auto-disconnected due to idle timeout.");
+      try {
+        await session.client?.close?.();
+        await session.transport?.close?.();
+      } catch {}
+      activeClients.delete(serverId);
+    }
+  }
+}, 5 * 60 * 1000);
+if (typeof idleSweepTimer.unref === "function") {
+  idleSweepTimer.unref();
+}
 
 export class McpClientManager {
   /**
@@ -49,7 +95,10 @@ export class McpClientManager {
       }
     }
 
-    const transportType = (serverConfig.transport || "STREAMABLE_HTTP").toUpperCase();
+    let transportType = (serverConfig.transport || "").toUpperCase().replace(/-/g, "_");
+    if (!transportType) {
+      transportType = serverConfig.command ? "STDIO" : "STREAMABLE_HTTP";
+    }
     let transport;
 
     if (transportType === "STREAMABLE_HTTP" || transportType === "HTTP") {
@@ -70,13 +119,17 @@ export class McpClientManager {
         throw new Error("Command is required for STDIO transport");
       }
       const rawCommand = serverConfig.command.trim();
-      const parts = rawCommand.split(/\s+/);
-      const command = parts[0];
-      const args = parts.slice(1);
+      let command = rawCommand;
+      let args = Array.isArray(serverConfig.args) ? [...serverConfig.args] : [];
+      if (args.length === 0) {
+        const parts = rawCommand.split(/\s+/);
+        command = parts[0];
+        args = parts.slice(1);
+      }
 
-      // Security check: only allow safe execution commands (node, python, npx, uv)
-      const allowedBinaries = ["node", "npx", "python", "python3", "uv", "uvx"];
-      const baseBinary = command.split(/[\\/]/).pop().toLowerCase();
+      // Security check: only allow safe execution commands (node, python, npx, uv, docker, etc.)
+      const allowedBinaries = ["node", "npx", "python", "python3", "uv", "uvx", "docker", "bun", "deno"];
+      const baseBinary = command.split(/[\\/]/).pop().toLowerCase().replace(/\.(exe|cmd|bat)$/, "");
       if (!allowedBinaries.includes(baseBinary)) {
         throw new Error(
           `Security violation: Command "${baseBinary}" is not in the permitted binary whitelist (${allowedBinaries.join(", ")})`
@@ -85,7 +138,7 @@ export class McpClientManager {
 
       // Resolve relative script paths against CWD or repo root
       const resolvedArgs = args.map((arg) => {
-        if (!arg.startsWith("-") && (arg.endsWith(".js") || arg.endsWith(".py") || arg.includes("/") || arg.includes("\\"))) {
+        if (typeof arg === "string" && !arg.startsWith("-") && (arg.endsWith(".js") || arg.endsWith(".py") || arg.includes("/") || arg.includes("\\"))) {
           if (fs.existsSync(arg)) return path.resolve(arg);
           const fromCwd = path.resolve(process.cwd(), arg);
           if (fs.existsSync(fromCwd)) return fromCwd;
@@ -95,14 +148,43 @@ export class McpClientManager {
         return arg;
       });
 
+      // Enforce per-workspace concurrent stdio process limit
+      if (serverConfig.workspaceId && serverConfig.type !== "builtin") {
+        const wsIdStr = String(serverConfig.workspaceId);
+        let wsStdioCount = 0;
+        for (const [id, sess] of activeClients.entries()) {
+          if (
+            id !== serverId &&
+            String(sess.serverConfig?.workspaceId) === wsIdStr &&
+            (sess.serverConfig?.transport || "").toUpperCase() === "STDIO" &&
+            sess.serverConfig?.type !== "builtin"
+          ) {
+            wsStdioCount++;
+          }
+        }
+        if (wsStdioCount >= MAX_STDIO_PER_WORKSPACE) {
+          throw new Error(
+            `Workspace limit reached: maximum ${MAX_STDIO_PER_WORKSPACE} concurrent local stdio MCP processes allowed. Disconnect an unused server first.`
+          );
+        }
+      }
+
       transport = new StdioClientTransport({
         command,
         args: resolvedArgs,
+        stderr: "pipe",
         env: {
           ...process.env,
           ...(serverConfig.env || {}),
         },
       });
+
+      if (transport.stderr) {
+        transport.stderr.on("data", (chunk) => {
+          appendServerLog(serverId, "stderr", chunk.toString());
+        });
+      }
+      appendServerLog(serverId, "info", `Spawning stdio process: ${command} ${resolvedArgs.join(" ")}`);
     } else {
       throw new Error(`Unsupported transport type: "${transportType}"`);
     }
@@ -122,12 +204,22 @@ export class McpClientManager {
     );
 
     // Timeout-guarded connection
-    const connectPromise = client.connect(transport);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`MCP server connection timed out after ${CONNECT_TIMEOUT_MS / 1000}s`)), CONNECT_TIMEOUT_MS)
-    );
+    try {
+      const connectPromise = client.connect(transport);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`MCP server connection timed out after ${CONNECT_TIMEOUT_MS / 1000}s`)), CONNECT_TIMEOUT_MS)
+      );
 
-    await Promise.race([connectPromise, timeoutPromise]);
+      await Promise.race([connectPromise, timeoutPromise]);
+    } catch (err) {
+      appendServerLog(serverId, "error", `Connection failed: ${err.message}`);
+      try {
+        await transport?.close?.();
+      } catch {}
+      throw err;
+    }
+
+    appendServerLog(serverId, "info", `Connected successfully via ${transportType}`);
 
     logger.info({ serverId, serverName: serverConfig.name, transport: transportType }, "Connected to MCP server");
 
@@ -166,6 +258,7 @@ export class McpClientManager {
       resources: discoveredResources,
       prompts: discoveredPrompts,
       connectedAt: new Date().toISOString(),
+      lastUsedAt: Date.now(),
     });
 
     return {
@@ -185,6 +278,9 @@ export class McpClientManager {
     let session = activeClients.get(serverId);
     if (!session) {
       session = await this.connect(serverConfig);
+    }
+    if (session) {
+      session.lastUsedAt = Date.now();
     }
 
     logger.info({ serverId, toolName, args }, "Calling MCP tool via official SDK");
@@ -242,15 +338,37 @@ export class McpClientManager {
   }
 
   /**
-   * Normalizes MCP tool execution output into a consistent format.
+   * Checks if an active client session exists for a server.
    */
-  static normalizeToolResult(raw) {
+  static isConnected(serverId) {
+    return activeClients.has(serverId.toString());
+  }
+
+  /**
+   * Returns captured stderr and lifecycle logs for a server.
+   */
+  static getLogs(serverId) {
+    return serverLogs.get(String(serverId)) || [];
+  }
+
+  /**
+   * Clears captured logs for a server.
+   */
+  static clearLogs(serverId) {
+    serverLogs.delete(String(serverId));
+  }
+
+  /**
+   * Normalizes MCP tool execution output into a consistent format,
+   * capping output text to prevent memory exhaustion and context window overflows.
+   */
+  static normalizeToolResult(raw, maxOutputChars = 65536) {
     if (!raw) return { text: "No content returned", isError: false };
 
     if (raw.isError) {
       const errorMsg =
         raw.content?.map((c) => c.text).filter(Boolean).join("\n") || "Unknown error during tool execution";
-      return { error: errorMsg, isError: true };
+      return { error: errorMsg.slice(0, maxOutputChars), isError: true };
     }
 
     if (Array.isArray(raw.content)) {
@@ -268,6 +386,11 @@ export class McpClientManager {
         }
       }
 
+      let combinedText = textParts.join("\n\n");
+      if (combinedText.length > maxOutputChars) {
+        combinedText = combinedText.slice(0, maxOutputChars) + "\n\n...[output truncated due to size limit]";
+      }
+
       // Check if text is JSON string
       let parsedJson = null;
       if (textParts.length === 1) {
@@ -277,7 +400,7 @@ export class McpClientManager {
       }
 
       return {
-        text: textParts.join("\n\n"),
+        text: combinedText,
         data: parsedJson || (textParts.length > 0 ? textParts : null),
         images: imageParts.length > 0 ? imageParts : undefined,
         resources: resourceParts.length > 0 ? resourceParts : undefined,
@@ -285,8 +408,11 @@ export class McpClientManager {
       };
     }
 
+    const rawStr = typeof raw === "string" ? raw : JSON.stringify(raw);
+    const truncatedStr = rawStr.length > maxOutputChars ? rawStr.slice(0, maxOutputChars) + "...[truncated]" : rawStr;
+
     return {
-      text: typeof raw === "string" ? raw : JSON.stringify(raw),
+      text: truncatedStr,
       data: raw,
       isError: false,
     };

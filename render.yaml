@@ -1,0 +1,82 @@
+services:
+  - type: redis
+    name: rag-mcp-redis
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+
+  - type: web
+    name: rag-mcp-ai-service
+    runtime: docker
+    dockerfilePath: ./services/ai-service/Dockerfile
+    dockerContext: .
+    plan: standard
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8001
+      - key: MONGODB_URI
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+  - type: web
+    name: rag-mcp-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: rag-mcp-storage
+      mountPath: /app/storage
+      sizeGB: 5
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8000
+      - key: TRUST_PROXY
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: STORAGE_DIR
+        value: /app/storage
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rag-mcp-redis
+          property: connectionString
+      - key: AI_SERVICE_URL
+        fromService:
+          type: web
+          name: rag-mcp-ai-service
+          property: hostport
+      - key: MONGODB_URI
+        sync: false
+      - key: WEB_ORIGIN
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+  - type: web
+    name: rag-mcp-web
+    runtime: static
+    buildCommand: pnpm install && pnpm --filter @rag-mcp/widget build && pnpm --filter @rag-mcp/web build
+    staticPublishPath: ./apps/web/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_MOCK_API
+        value: "false"
+      - key: VITE_API_URL
+        sync: false

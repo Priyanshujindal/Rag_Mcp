@@ -13,6 +13,8 @@ const mcpToolSchema = new mongoose.Schema(
       default: "auto",
     },
     requiresApproval: { type: Boolean, default: false },
+    lastExecutionStatus: { type: String, default: null },
+    lastExecutedAt: { type: Date, default: null },
     lastDiscoveredAt: { type: Date, default: Date.now },
   },
   { _id: false }
@@ -50,6 +52,19 @@ const mcpServerSchema = new mongoose.Schema(
       type: String,
       default: null,
       trim: true,
+    },
+    args: {
+      type: [String],
+      default: [],
+    },
+    rawConfig: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    type: {
+      type: String,
+      enum: ["custom", "builtin", "integration"],
+      default: "custom",
     },
     transport: {
       type: String,
@@ -102,19 +117,41 @@ const mcpServerSchema = new mongoose.Schema(
 
 mcpServerSchema.index({ workspaceId: 1, createdAt: -1 });
 
-// Redact authorization headers from JSON output
+// Redact sensitive authorization headers and environment variables from JSON output
 mcpServerSchema.methods.toJSON = function () {
   const obj = this.toObject();
   if (obj.headers && typeof obj.headers === "object") {
     const masked = {};
     for (const [k, v] of Object.entries(obj.headers)) {
-      if (k.toLowerCase().includes("auth") || k.toLowerCase().includes("key") || k.toLowerCase().includes("secret") || k.toLowerCase().includes("token")) {
+      if (
+        k.toLowerCase().includes("auth") ||
+        k.toLowerCase().includes("key") ||
+        k.toLowerCase().includes("secret") ||
+        k.toLowerCase().includes("token")
+      ) {
         masked[k] = v ? "••••••••" : "";
       } else {
         masked[k] = v;
       }
     }
     obj.headers = masked;
+  }
+  if (obj.env && typeof obj.env === "object") {
+    const maskedEnv = {};
+    for (const [k, v] of Object.entries(obj.env)) {
+      if (
+        k.toLowerCase().includes("key") ||
+        k.toLowerCase().includes("secret") ||
+        k.toLowerCase().includes("token") ||
+        k.toLowerCase().includes("pass") ||
+        k.toLowerCase().includes("auth")
+      ) {
+        maskedEnv[k] = v ? "••••••••" : "";
+      } else {
+        maskedEnv[k] = v;
+      }
+    }
+    obj.env = maskedEnv;
   }
   return obj;
 };

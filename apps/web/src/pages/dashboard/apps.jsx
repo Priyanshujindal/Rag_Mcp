@@ -21,7 +21,14 @@ import {
   Loader2,
   Plug,
   Zap,
+  Plus,
+  Terminal,
+  Globe,
+  Power,
+  Wrench,
 } from "lucide-react";
+import { Link } from "react-router-dom";
+import AddMcpModal from "@/components/AddMcpModal";
 import {
   getIntegrationsCatalog,
   authorizeIntegration,
@@ -31,10 +38,28 @@ import {
   updateConnectedAccount,
   testConnectedAccount,
   disconnectAccount,
+  getMockMcpServers,
+  connectMcpServer,
+  disconnectMcpServer,
+  deleteMcpServer,
+  refreshMcpTools,
+  toggleMcpTool,
+  testMcpConnection,
 } from "@/lib/api";
+import "./mcp.css";
 import "./apps.css";
 
-function getAppIcon(id, size = 22) {
+function getAppIcon(id, size = 22, app = null) {
+  if (app?.isCustomMcp) {
+    const isRemote =
+      app.mcpServer?.transport?.toLowerCase().includes("http") ||
+      app.mcpServer?.transport?.toLowerCase().includes("sse");
+    return isRemote ? (
+      <Globe size={size} className="icon-mcp" />
+    ) : (
+      <Terminal size={size} className="icon-mcp" />
+    );
+  }
   switch (id) {
     case "gmail":
       return <Mail size={size} className="icon-gmail" />;
@@ -72,6 +97,9 @@ export default function AppsMarketplacePage() {
   // Modals state
   const [connectModalApp, setConnectModalApp] = useState(null);
   const [manageModalConn, setManageModalConn] = useState(null);
+  const [manageModalMcp, setManageModalMcp] = useState(null);
+  const [showAddMcpModal, setShowAddMcpModal] = useState(false);
+  const [togglingMcpId, setTogglingMcpId] = useState(null);
   const [connectTab, setConnectTab] = useState("oauth"); // 'oauth' | 'token'
   const [tokenInput, setTokenInput] = useState("");
   const [connecting, setConnecting] = useState(false);
@@ -82,8 +110,48 @@ export default function AppsMarketplacePage() {
     try {
       setLoading(true);
       setError(null);
-      const data = await getIntegrationsCatalog();
-      setCatalog(Array.isArray(data) ? data : []);
+      const [catalogData, mcpServersData] = await Promise.all([
+        getIntegrationsCatalog().catch(() => []),
+        getMockMcpServers().catch(() => []),
+      ]);
+
+      const customMcpApps = (Array.isArray(mcpServersData) ? mcpServersData : [])
+        .filter((srv) => srv.type !== "builtin" && srv.name !== "Builtin System Tools")
+        .map((srv) => {
+          const tools = srv.tools || [];
+          const isConnected = (srv.status || "").toLowerCase() === "connected";
+          return {
+            id: srv._id || srv.id,
+            name: srv.name,
+            category: "Custom MCP",
+            description:
+              srv.description ||
+              (srv.command
+                ? `${srv.command} ${(srv.args || []).join(" ")}`.trim()
+                : srv.url) ||
+              "Custom Model Context Protocol Server",
+            isCustomMcp: true,
+            mcpServer: srv,
+            isConnected,
+            status: isConnected ? "connected" : "available",
+            capabilities: tools
+              .slice(0, 3)
+              .map((t) => `${t.name}: ${t.description || "MCP Tool"}`),
+            tools,
+          };
+        });
+
+      const merged = [
+        ...(Array.isArray(catalogData) ? catalogData : []),
+        ...customMcpApps,
+      ];
+      setCatalog(merged);
+
+      // Keep open manageModalMcp in sync if refreshed
+      if (manageModalMcp) {
+        const updated = customMcpApps.find((a) => a.id === manageModalMcp.id);
+        if (updated) setManageModalMcp(updated);
+      }
     } catch (err) {
       setError(err.message || "Failed to load apps catalog");
     } finally {
@@ -267,6 +335,97 @@ export default function AppsMarketplacePage() {
     }
   };
 
+  // Custom MCP App Handlers
+  const handleMcpConnectToggle = async (app) => {
+    setTogglingMcpId(app.id);
+    try {
+      if (app.isConnected) {
+        await disconnectMcpServer(app.id);
+      } else {
+        await connectMcpServer(app.id);
+      }
+      await loadData();
+    } catch (err) {
+      alert(`Connection toggle failed: ${err.message}`);
+    } finally {
+      setTogglingMcpId(null);
+    }
+  };
+
+  const handleMcpToolPermission = async (app, toolName, newPermission) => {
+    try {
+      const enabled = newPermission !== "deny";
+      const requiresApproval = newPermission === "always_ask";
+      await toggleMcpTool(app.id, toolName, {
+        enabled,
+        permission: newPermission,
+        requiresApproval,
+      });
+      setManageModalMcp((prev) =>
+        prev && prev.id === app.id
+          ? {
+              ...prev,
+              tools: (prev.tools || []).map((t) =>
+                t.name === toolName
+                  ? { ...t, enabled, permission: newPermission, requiresApproval }
+                  : t
+              ),
+            }
+          : prev
+      );
+      await loadData();
+    } catch (err) {
+      alert(`Failed to update MCP tool setting: ${err.message}`);
+    }
+  };
+
+  const handleMcpTest = async (appId) => {
+    setTestingConn(true);
+    setTestResult(null);
+    try {
+      const res = await testMcpConnection(appId);
+      setTestResult({
+        success: res?.success !== false,
+        message:
+          res?.success !== false
+            ? `Connected & healthy. Discovered ${res.toolCount || 0} tools.`
+            : res.error || "Connection test failed",
+      });
+    } catch (err) {
+      setTestResult({ success: false, message: err.message });
+    } finally {
+      setTestingConn(false);
+    }
+  };
+
+  const handleMcpRefresh = async (appId) => {
+    setTestingConn(true);
+    setTestResult(null);
+    try {
+      const updated = await refreshMcpTools(appId);
+      setTestResult({
+        success: true,
+        message: `Refreshed capabilities. Found ${updated?.tools?.length || 0} tools.`,
+      });
+      await loadData();
+    } catch (err) {
+      setTestResult({ success: false, message: err.message });
+    } finally {
+      setTestingConn(false);
+    }
+  };
+
+  const handleMcpDelete = async (app) => {
+    if (!window.confirm(`Are you sure you want to remove custom MCP app "${app.name}"?`)) return;
+    try {
+      await deleteMcpServer(app.id);
+      setManageModalMcp(null);
+      await loadData();
+    } catch (err) {
+      alert(`Failed to delete custom MCP app: ${err.message}`);
+    }
+  };
+
   return (
     <div className="apps-marketplace-container">
       {/* Header Banner */}
@@ -277,6 +436,13 @@ export default function AppsMarketplacePage() {
             <span className="apps-counter-pill">
               <Plug size={14} /> {connectedCount} Connected
             </span>
+            <button
+              type="button"
+              className="btn-add-custom-mcp"
+              onClick={() => setShowAddMcpModal(true)}
+            >
+              <Plus size={15} /> Add Custom MCP App
+            </button>
           </div>
           <p className="apps-subtitle">
             Supercharge your AI assistant with connected tools like Gmail, Google Drive, Notion, GitHub, and Slack to search, read, analyze, and execute actions with precision.
@@ -362,11 +528,13 @@ export default function AppsMarketplacePage() {
               <div key={app.id} className={`app-card ${app.isConnected ? "is-connected" : ""}`}>
                 {/* Top card row */}
                 <div className="app-card-header">
-                  <div className="app-icon-badge">{getAppIcon(app.id)}</div>
+                  <div className="app-icon-badge">{getAppIcon(app.id, 22, app)}</div>
                   <div className="app-card-title-wrap">
                     <div className="app-name-row">
                       <h3 className="app-name">{app.name}</h3>
-                      <span className="app-category-pill">{app.category}</span>
+                      <span className={`app-category-pill ${app.isCustomMcp ? "mcp-cat-pill" : ""}`}>
+                        {app.category}
+                      </span>
                     </div>
                     {app.isConnected ? (
                       <span className="badge-connected">
@@ -375,7 +543,9 @@ export default function AppsMarketplacePage() {
                     ) : isComingSoon ? (
                       <span className="badge-coming-soon">Coming Soon</span>
                     ) : (
-                      <span className="badge-available">Available</span>
+                      <span className="badge-available">
+                        {app.isCustomMcp ? "Disconnected" : "Available"}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -386,7 +556,9 @@ export default function AppsMarketplacePage() {
                 {/* Capabilities list */}
                 {app.capabilities && app.capabilities.length > 0 && (
                   <div className="app-capabilities-box">
-                    <span className="capabilities-label">Capabilities:</span>
+                    <span className="capabilities-label">
+                      {app.isCustomMcp ? `Discovered Tools (${app.tools?.length || 0}):` : "Capabilities:"}
+                    </span>
                     <ul className="capabilities-list">
                       {app.capabilities.slice(0, 3).map((cap, i) => (
                         <li key={i}>{cap}</li>
@@ -397,7 +569,37 @@ export default function AppsMarketplacePage() {
 
                 {/* Card footer actions */}
                 <div className="app-card-footer">
-                  {app.isConnected ? (
+                  {app.isCustomMcp ? (
+                    <div className="connected-actions-row">
+                      <button
+                        type="button"
+                        className={`btn-mcp-power ${app.isConnected ? "is-on" : ""}`}
+                        onClick={() => handleMcpConnectToggle(app)}
+                        disabled={togglingMcpId === app.id}
+                      >
+                        {togglingMcpId === app.id ? (
+                          <Loader2 size={13} className="spin" />
+                        ) : (
+                          <Power size={13} />
+                        )}
+                        {togglingMcpId === app.id
+                          ? "Updating..."
+                          : app.isConnected
+                          ? "Disconnect"
+                          : "Connect"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-manage"
+                        onClick={() => {
+                          setManageModalMcp(app);
+                          setTestResult(null);
+                        }}
+                      >
+                        <Settings size={14} /> Manage
+                      </button>
+                    </div>
+                  ) : app.isConnected ? (
                     <div className="connected-actions-row">
                       <div className="account-tag" title={firstConn?.accountEmail}>
                         {firstConn?.accountDisplayName || firstConn?.accountEmail || "Active Account"}
@@ -713,6 +915,144 @@ export default function AppsMarketplacePage() {
           </div>
         </div>
       )}
+
+      {/* Manage Custom MCP App Modal */}
+      {manageModalMcp && (
+        <div className="apps-modal-overlay" onClick={() => setManageModalMcp(null)}>
+          <div className="apps-modal-box manage-box" onClick={(e) => e.stopPropagation()}>
+            <div className="apps-modal-header">
+              <div className="apps-modal-title-row">
+                {getAppIcon(manageModalMcp.id, 24, manageModalMcp)}
+                <h2>Manage {manageModalMcp.name}</h2>
+              </div>
+              <button className="btn-close" onClick={() => setManageModalMcp(null)}>
+                ×
+              </button>
+            </div>
+
+            {testResult && (
+              <div className={`diag-banner ${testResult.success ? "success" : "error"}`}>
+                {testResult.success ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                <span>{testResult.message}</span>
+              </div>
+            )}
+
+            <div className="conn-details-list">
+              <div className="detail-item">
+                <span className="detail-key">Transport:</span>
+                <span className="detail-val">{manageModalMcp.mcpServer?.transport || "STDIO"}</span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-key">Endpoint / Command:</span>
+                <span className="detail-val" style={{ fontFamily: "monospace", fontSize: "12px" }}>
+                  {manageModalMcp.mcpServer?.command
+                    ? `${manageModalMcp.mcpServer.command} ${(manageModalMcp.mcpServer.args || []).join(" ")}`
+                    : manageModalMcp.mcpServer?.url || "-"}
+                </span>
+              </div>
+              <div className="detail-item">
+                <span className="detail-key">Status:</span>
+                <span className={`detail-val ${manageModalMcp.isConnected ? "badge-connected" : ""}`}>
+                  {manageModalMcp.isConnected ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}{" "}
+                  {manageModalMcp.mcpServer?.status || "DISCONNECTED"}
+                </span>
+              </div>
+            </div>
+
+            {/* Discovered Tools & Permissions */}
+            <div className="tools-management-section">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h4>Discovered MCP Tools ({manageModalMcp.tools?.length || 0}):</h4>
+                <Link
+                  to="/dashboard/mcp"
+                  style={{ fontSize: "12px", color: "#818cf8", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                >
+                  Open Full JSON Editor <ExternalLink size={12} />
+                </Link>
+              </div>
+              <p className="tools-subtext">
+                Configure which tools the AI assistant can run automatically, require confirmation, or disable.
+              </p>
+
+              <div className="tools-list-compact">
+                {(!manageModalMcp.tools || manageModalMcp.tools.length === 0) ? (
+                  <div style={{ fontSize: "12px", color: "#94a3b8", padding: "12px 0" }}>
+                    No tools discovered yet. Click "Refresh Tools" below to query the server.
+                  </div>
+                ) : (
+                  manageModalMcp.tools.map((tool) => {
+                    const currentPerm =
+                      tool.enabled === false
+                        ? "deny"
+                        : tool.permission || (tool.requiresApproval ? "always_ask" : "auto");
+
+                    return (
+                      <div key={tool.name} className="tool-row-item">
+                        <div className="tool-info">
+                          <span className="tool-name">
+                            <Wrench size={12} style={{ marginRight: "5px", verticalAlign: "middle" }} />
+                            {tool.name}
+                          </span>
+                          <span className="tool-desc">{tool.description || "No description"}</span>
+                        </div>
+                        <div className="tool-perm-control">
+                          <select
+                            value={currentPerm}
+                            onChange={(e) =>
+                              handleMcpToolPermission(manageModalMcp, tool.name, e.target.value)
+                            }
+                            className="tool-perm-select"
+                          >
+                            <option value="auto">Auto Run (Safe)</option>
+                            <option value="always_ask">Require Approval</option>
+                            <option value="deny">Disabled</option>
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="manage-modal-footer">
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  className="btn-test-conn"
+                  onClick={() => handleMcpTest(manageModalMcp.id)}
+                  disabled={testingConn}
+                >
+                  {testingConn ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                  Test
+                </button>
+                <button
+                  type="button"
+                  className="btn-test-conn"
+                  onClick={() => handleMcpRefresh(manageModalMcp.id)}
+                  disabled={testingConn}
+                >
+                  <RefreshCw size={14} /> Refresh Tools
+                </button>
+              </div>
+              <button
+                type="button"
+                className="btn-danger-disconnect"
+                onClick={() => handleMcpDelete(manageModalMcp)}
+              >
+                <Trash2 size={14} /> Remove MCP App
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Custom MCP Modal */}
+      <AddMcpModal
+        open={showAddMcpModal}
+        onClose={() => setShowAddMcpModal(false)}
+        onSuccess={() => loadData()}
+      />
     </div>
   );
 }

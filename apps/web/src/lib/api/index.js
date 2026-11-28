@@ -73,6 +73,13 @@ export const deleteMcpServer = dispatch("deleteMcpServer");
 export const refreshMcpTools = dispatch("refreshMcpTools");
 export const testMcpConnection = dispatch("testMcpConnection");
 export const toggleMcpTool = dispatch("toggleMcpTool");
+export const batchUpdateMcpTools = dispatch("batchUpdateMcpTools");
+export const importMcpConfig = dispatch("importMcpConfig");
+export const connectMcpServer = dispatch("connectMcpServer");
+export const disconnectMcpServer = dispatch("disconnectMcpServer");
+export const getMcpConfig = dispatch("getMcpConfig");
+export const updateMcpConfig = dispatch("updateMcpConfig");
+export const getMcpServerLogs = dispatch("getMcpServerLogs");
 export const getMcpExecutions = dispatch("getMcpExecutions");
 export const getActiveMcpTools = dispatch("getActiveMcpTools");
 export const getIntegrationsCatalog = dispatch("getIntegrationsCatalog");
@@ -84,6 +91,13 @@ export const demoConnectIntegration = dispatch("demoConnectIntegration");
 export const updateConnectedAccount = dispatch("updateConnectedAccount");
 export const testConnectedAccount = dispatch("testConnectedAccount");
 export const disconnectAccount = dispatch("disconnectAccount");
+export const getTeamMembers = dispatch("getTeamMembers");
+export const inviteTeamMember = dispatch("inviteTeamMember");
+export const updateTeamMemberRole = dispatch("updateTeamMemberRole");
+export const removeTeamMember = dispatch("removeTeamMember");
+export const revokeTeamInvite = dispatch("revokeTeamInvite");
+export const resendTeamInvite = dispatch("resendTeamInvite");
+export const leaveWorkspace = dispatch("leaveWorkspace");
 
 export { isMock };
 export { ApiError } from "./client.js";
@@ -117,3 +131,5 @@ export default {
   createMcpServer,
   toggleMcpTool,
 };
+
+export { getApiOrigin } from "./client.js";

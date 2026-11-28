@@ -28,19 +28,18 @@ function renderMarkdown(rawText) {
   // 4. Bold (**text**)
   escaped = escaped.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
 
-  // 5. Italic (*text*)
-  escaped = escaped.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-
-  // 6. Links [text](url)
-  escaped = escaped.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
-  );
-
-  // 7. Bullet lists (- item)
+  // 5. Bullet lists (- item or * item) BEFORE italic so leading "* " is not treated as italic
   const lines = escaped.split("\n");
   const processed = [];
   let inList = false;
+
+  const formatInline = (text) =>
+    text
+      .replace(/(^|[\s(])\*([^\s*][^*\n]*?)\*/g, "$1<em>$2</em>")
+      .replace(
+        /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+      );
 
   for (const line of lines) {
     if (line.trim().startsWith("- ") || line.trim().startsWith("* ")) {
@@ -48,14 +47,14 @@ function renderMarkdown(rawText) {
         processed.push("<ul>");
         inList = true;
       }
-      processed.push(`<li>${line.trim().substring(2)}</li>`);
+      processed.push(`<li>${formatInline(line.trim().substring(2))}</li>`);
     } else {
       if (inList) {
         processed.push("</ul>");
         inList = false;
       }
       if (line.trim()) {
-        processed.push(`<p>${line}</p>`);
+        processed.push(`<p>${formatInline(line)}</p>`);
       }
     }
   }
