@@ -27,8 +27,18 @@ const loginSchema = z
   })
   .strict();
 
+const googleCallbackSchema = z
+  .object({
+    code: z.string().min(1, "Authorization code is required"),
+    state: z.string().min(1, "OAuth state is required"),
+    redirectUri: z.string().url().optional(),
+  })
+  .strict();
+
 router.post("/register", validate({ body: registerSchema }), registerLimiter, authController.register);
 router.post("/login", validate({ body: loginSchema }), loginEmailLimiter, loginLimiter, authController.login);
+router.get("/google", authController.googleStart);
+router.post("/google/callback", validate({ body: googleCallbackSchema }), loginLimiter, authController.googleCallback);
 router.post("/refresh", refreshLimiter, authController.refresh);
 router.post("/logout", authController.logout);
 router.get("/me", authenticate, authController.me);

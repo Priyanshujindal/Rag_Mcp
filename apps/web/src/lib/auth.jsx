@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
-import { loginUser, registerUser, logoutUser, getMockUser, isMock } from "./api/index.js";
+import { loginUser, registerUser, loginWithGoogle as loginWithGoogleApi, logoutUser, getMockUser, isMock } from "./api/index.js";
 import { refreshAccessToken, broadcastLogout, subscribeToLogout, getAccessToken } from "./api/client.js";
 
 const AuthContext = createContext({
@@ -8,6 +8,7 @@ const AuthContext = createContext({
   user: null,
   login: async () => {},
   register: async () => {},
+  loginWithGoogle: async () => {},
   logout: async () => {},
 });
 
@@ -176,6 +177,19 @@ export function AuthProvider({ children }) {
     scheduleTokenRefresh(data.accessToken);
   };
 
+  const loginWithGoogle = async (payload) => {
+    if (isMock) {
+      return login();
+    }
+
+    const data = await loginWithGoogleApi(payload);
+    setIsAuthenticated(true);
+    setUser(data.user);
+    setIsLoading(false);
+    scheduleTokenRefresh(data.accessToken);
+    return data;
+  };
+
   const logout = async () => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
 
@@ -200,7 +214,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, user, login, register, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, user, login, register, loginWithGoogle, logout }}>
       {children}
     </AuthContext.Provider>
   );

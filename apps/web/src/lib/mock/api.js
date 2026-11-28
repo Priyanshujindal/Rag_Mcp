@@ -200,6 +200,19 @@ export async function loginUser({ email, password: _password }) {
   };
 }
 
+export async function getGoogleAuthUrl(_redirectUri) {
+  await delay(100);
+  return { authUrl: null, state: "mock_google_state" };
+}
+
+export async function loginWithGoogle() {
+  await delay();
+  return {
+    user: state.user,
+    accessToken: "mock_access_token_jwt",
+  };
+}
+
 export async function registerUser({ email, password: _password, name }) {
   await delay();
   const user = {

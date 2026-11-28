@@ -51,6 +51,8 @@ export const deleteEvalRun = dispatch("deleteEvalRun");
 // Mutations
 export const loginUser = dispatch("loginUser");
 export const registerUser = dispatch("registerUser");
+export const getGoogleAuthUrl = dispatch("getGoogleAuthUrl");
+export const loginWithGoogle = dispatch("loginWithGoogle");
 export const logoutUser = dispatch("logoutUser");
 export const createChatbot = dispatch("createChatbot");
 export const updateChatbot = dispatch("updateChatbot");

@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import config from "../../config/index.js";
 import AppError from "../../utils/app-error.js";
 import { User, Workspace, Membership, RefreshToken } from "../../db/models/index.js";
+import { cacheSet, cacheGet, cacheDel } from "../../lib/redis.js";
 
 /**
  * Creates SHA-256 hash of a raw token string
@@ -60,6 +61,55 @@ export async function createRefreshToken(userId, metadata = {}, options = {}) {
   return { rawToken, expiresAt };
 }
 
+/**
+ * Provision a personal workspace + OWNER membership for a newly registered user
+ * and accept any pending workspace invitations for their email.
+ */
+async function createPersonalWorkspaceAndAcceptInvites(user) {
+  const baseSlug = (user.name || user.email.split("@")[0] || "workspace")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 30);
+  const uniqueSlug = `${baseSlug}-${crypto.randomBytes(4).toString("hex")}`;
+
+  const workspace = await Workspace.create({
+    name: `${user.name || "My"}'s Workspace`,
+    slug: uniqueSlug,
+  });
+
+  await Membership.create({
+    userId: user._id,
+    workspaceId: workspace._id,
+    role: "OWNER",
+  });
+
+  // Accept any pending workspace invitations for this email
+  try {
+    const { WorkspaceInvite } = await import("../../db/models/workspace-invite.model.js");
+    const pendingInvites = await WorkspaceInvite.find({
+      email: user.email.toLowerCase(),
+      status: "pending",
+    });
+    for (const inv of pendingInvites) {
+      const exists = await Membership.findOne({ userId: user._id, workspaceId: inv.workspaceId });
+      if (!exists) {
+        await Membership.create({
+          userId: user._id,
+          workspaceId: inv.workspaceId,
+          role: inv.role,
+        });
+      }
+      inv.status = "accepted";
+      await inv.save();
+    }
+  } catch {
+    // Non-fatal if invites check fails
+  }
+
+  return workspace;
+}
+
 export const authService = {
   /**
    * Register a new user, their personal workspace, and owner membership
@@ -75,49 +125,10 @@ export const authService = {
       email: email.toLowerCase(),
       passwordHash,
       name,
+      authProvider: "local",
     });
 
-    // Create personal workspace with unique slug
-    const baseSlug = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "-")
-      .replace(/-+/g, "-")
-      .slice(0, 30);
-    const uniqueSlug = `${baseSlug}-${crypto.randomBytes(4).toString("hex")}`;
-
-    const workspace = await Workspace.create({
-      name: `${name}'s Workspace`,
-      slug: uniqueSlug,
-    });
-
-    await Membership.create({
-      userId: user._id,
-      workspaceId: workspace._id,
-      role: "OWNER",
-    });
-
-    // Accept any pending workspace invitations for this email
-    try {
-      const { WorkspaceInvite } = await import("../../db/models/workspace-invite.model.js");
-      const pendingInvites = await WorkspaceInvite.find({
-        email: user.email.toLowerCase(),
-        status: "pending",
-      });
-      for (const inv of pendingInvites) {
-        const exists = await Membership.findOne({ userId: user._id, workspaceId: inv.workspaceId });
-        if (!exists) {
-          await Membership.create({
-            userId: user._id,
-            workspaceId: inv.workspaceId,
-            role: inv.role,
-          });
-        }
-        inv.status = "accepted";
-        await inv.save();
-      }
-    } catch {
-      // Non-fatal if invites check fails
-    }
+    const workspace = await createPersonalWorkspaceAndAcceptInvites(user);
 
     const accessToken = generateAccessToken(user);
     const { rawToken: refreshToken } = await createRefreshToken(user._id, metadata);
@@ -139,6 +150,10 @@ export const authService = {
       throw AppError.unauthorized("Invalid email or password.");
     }
 
+    if (!user.passwordHash) {
+      throw AppError.unauthorized("This account uses Google Sign-In. Please click Continue with Google.");
+    }
+
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) {
       throw AppError.unauthorized("Invalid email or password.");
@@ -149,6 +164,122 @@ export const authService = {
 
     return {
       user: user.toJSON(),
+      accessToken,
+      refreshToken,
+    };
+  },
+
+  /**
+   * Build Google OAuth 2.0 login URL and persist CSRF state
+   */
+  async getGoogleAuthUrl({ redirectUri }) {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      throw AppError.badRequest(
+        "Google Sign-In is not configured on the server (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET missing)."
+      );
+    }
+
+    const state = crypto.randomBytes(24).toString("hex");
+    await cacheSet(`auth:google:state:${state}`, { redirectUri, createdAt: Date.now() }, 600);
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid email profile",
+      access_type: "online",
+      prompt: "select_account",
+      state,
+    });
+
+    return {
+      authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+      state,
+    };
+  },
+
+  /**
+   * Exchange Google authorization code, find or create user + workspace, and issue session tokens
+   */
+  async loginWithGoogle({ code, state, redirectUri }, metadata = {}) {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      throw AppError.badRequest("Google Sign-In is not configured on the server.");
+    }
+
+    const cachedState = state ? await cacheGet(`auth:google:state:${state}`) : null;
+    if (!cachedState) {
+      throw AppError.forbidden("Invalid or expired Google Sign-In state. Please try again.");
+    }
+    await cacheDel(`auth:google:state:${state}`);
+
+    const effectiveRedirect = redirectUri || cachedState.redirectUri;
+
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: effectiveRedirect,
+        grant_type: "authorization_code",
+      }),
+    });
+
+    const tokenJson = await tokenRes.json().catch(() => ({}));
+    if (!tokenRes.ok || !tokenJson.access_token) {
+      throw AppError.unauthorized(
+        tokenJson.error_description || "Failed to verify Google authorization code."
+      );
+    }
+
+    const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+    });
+    const profile = await profileRes.json().catch(() => ({}));
+    if (!profileRes.ok || !profile.email || profile.email_verified === false) {
+      throw AppError.unauthorized("Google account email could not be verified.");
+    }
+
+    const normalizedEmail = profile.email.toLowerCase();
+    let user = await User.findOne({ $or: [{ googleId: profile.sub }, { email: normalizedEmail }] });
+    let workspace = null;
+
+    if (!user) {
+      user = await User.create({
+        email: normalizedEmail,
+        name: profile.name || normalizedEmail.split("@")[0],
+        avatarUrl: profile.picture || null,
+        googleId: profile.sub,
+        authProvider: "google",
+      });
+      workspace = await createPersonalWorkspaceAndAcceptInvites(user);
+    } else {
+      let dirty = false;
+      if (!user.googleId && profile.sub) {
+        user.googleId = profile.sub;
+        dirty = true;
+      }
+      if (!user.avatarUrl && profile.picture) {
+        user.avatarUrl = profile.picture;
+        dirty = true;
+      }
+      if (dirty) await user.save();
+
+      const membership = await Membership.findOne({ userId: user._id }).populate("workspaceId");
+      workspace = membership?.workspaceId || (await createPersonalWorkspaceAndAcceptInvites(user));
+    }
+
+    const accessToken = generateAccessToken(user);
+    const { rawToken: refreshToken } = await createRefreshToken(user._id, metadata);
+
+    return {
+      user: user.toJSON(),
+      workspace: workspace?.toJSON ? workspace.toJSON() : workspace,
       accessToken,
       refreshToken,
     };

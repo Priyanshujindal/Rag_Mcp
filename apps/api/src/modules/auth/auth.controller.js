@@ -123,6 +123,41 @@ export const authController = {
       next(err);
     }
   },
+
+  async googleStart(req, res, next) {
+    try {
+      const rawRedirect = req.query.redirectUri;
+      const defaultOrigin = (config.WEB_ORIGIN || "http://localhost:3000").split(",")[0].trim();
+      const redirectUri =
+        typeof rawRedirect === "string" && rawRedirect.startsWith("http")
+          ? rawRedirect
+          : `${defaultOrigin}/login`;
+
+      const result = await authService.getGoogleAuthUrl({ redirectUri });
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async googleCallback(req, res, next) {
+    try {
+      const metadata = {
+        userAgent: req.headers["user-agent"],
+        ip: req.ip,
+      };
+      const result = await authService.loginWithGoogle(req.body, metadata);
+      setRefreshTokenCookie(res, result.refreshToken);
+
+      res.status(200).json({
+        user: result.user,
+        workspace: result.workspace,
+        accessToken: result.accessToken,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
 };
 
 export default authController;

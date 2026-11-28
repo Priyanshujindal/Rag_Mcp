@@ -321,6 +321,22 @@ export async function registerUser({ email, password, name }) {
   return data;
 }
 
+export async function getGoogleAuthUrl(redirectUri) {
+  const qs = redirectUri ? `?redirectUri=${encodeURIComponent(redirectUri)}` : "";
+  return api.get(`/auth/google${qs}`);
+}
+
+export async function loginWithGoogle({ code, state, redirectUri }) {
+  const data = await api.post("/auth/google/callback", { code, state, redirectUri });
+  if (data.accessToken) {
+    setAccessToken(data.accessToken);
+  }
+  if (data.workspace?.id || data.workspace?._id) {
+    setActiveWorkspaceId(data.workspace.id || data.workspace._id);
+  }
+  return data;
+}
+
 export async function logoutUser() {
   try {
     await api.post("/auth/logout", {});
